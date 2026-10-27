@@ -47,6 +47,8 @@ CREATE TABLE IF NOT EXISTS workflow_stages (
     completion_json TEXT,
     artifact_recovery_attempts INTEGER NOT NULL DEFAULT 0,
     artifact_error TEXT,
+    history_stage_ids_json TEXT NOT NULL DEFAULT '[]',
+    context_version INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (workflow_id, id)
 );
 
@@ -71,6 +73,8 @@ CREATE TABLE IF NOT EXISTS artifacts (
     UNIQUE (project_id, path)
 );
 
+CREATE INDEX IF NOT EXISTS facts_by_project ON facts(project_id);
+
 CREATE TABLE IF NOT EXISTS intents (
     id TEXT NOT NULL,
     project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -92,6 +96,8 @@ CREATE TABLE IF NOT EXISTS intent_sources (
     FOREIGN KEY (intent_id, project_id) REFERENCES intents(id, project_id) ON DELETE CASCADE
 );
 
+CREATE INDEX IF NOT EXISTS intents_by_project ON intents(project_id);
+
 CREATE TABLE IF NOT EXISTS hints (
     id TEXT NOT NULL,
     project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -105,6 +111,8 @@ CREATE TABLE IF NOT EXISTS counters (
     name TEXT PRIMARY KEY,
     value INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE INDEX IF NOT EXISTS hints_by_project ON hints(project_id);
 
 INSERT OR IGNORE INTO counters (name, value) VALUES ('project', 0);
 INSERT OR IGNORE INTO counters (name, value) VALUES ('workflow', 0);
@@ -128,6 +136,8 @@ def configure(path: Path) -> None:
         conn.executescript(SCHEMA)
         _ensure_project_columns(conn)
         _ensure_workflow_stage_columns(conn)
+        from cairn.server.workflow_context import migrate_legacy_stage_contexts
+        migrate_legacy_stage_contexts(conn)
 
 
 def _ensure_project_columns(conn: sqlite3.Connection) -> None:
@@ -151,6 +161,10 @@ def _ensure_workflow_stage_columns(conn: sqlite3.Connection) -> None:
         )
     if "artifact_error" not in columns:
         conn.execute("ALTER TABLE workflow_stages ADD COLUMN artifact_error TEXT")
+    if "history_stage_ids_json" not in columns:
+        conn.execute("ALTER TABLE workflow_stages ADD COLUMN history_stage_ids_json TEXT NOT NULL DEFAULT '[]'")
+    if "context_version" not in columns:
+        conn.execute("ALTER TABLE workflow_stages ADD COLUMN context_version INTEGER NOT NULL DEFAULT 0")
 
 
 @contextmanager

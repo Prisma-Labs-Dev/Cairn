@@ -4,6 +4,7 @@ import logging
 import time
 
 from cairn.dispatcher.config import DispatchConfig, WorkerConfig
+from cairn.dispatcher.history import add_optional_history
 from cairn.dispatcher.artifacts import capture_required_artifacts
 from cairn.dispatcher.contracts import (
     parse_json_output,
@@ -94,6 +95,7 @@ def run_bootstrap_task(
             load_prompt(config.runtime.prompt_group, "bootstrap.md"),
             _bootstrap_prompt_replacements(project),
         )
+        prompt = add_optional_history(prompt, config, container_manager, container_name, project)
 
         session = driver.prepare_session()
         execute = driver.build_execute(worker, prompt, session)
@@ -292,6 +294,7 @@ def _try_conclude_fallback(
         load_prompt(config.runtime.prompt_group, "bootstrap_conclude.md"),
         _bootstrap_prompt_replacements(project),
     )
+    prompt = add_optional_history(prompt, config, container_manager, container_name, project)
     conclude_argv = driver.build_conclude(worker, prompt, session)
     LOG.info("starting bootstrap conclude fallback project=%s intent=%s worker=%s", project.project.id, intent.id, worker.name)
     conclude_started = time.perf_counter()

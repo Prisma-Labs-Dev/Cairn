@@ -7,12 +7,13 @@ from fastapi import HTTPException
 
 from cairn.server.artifact_service import list_artifacts
 from cairn.server.models import (
-    CreateWorkflowRequest, Fact, StageCompletion, StageHandoff, WorkflowDetail,
+    CreateWorkflowRequest, StageCompletion, WorkflowDetail,
     WorkflowMeta, WorkflowStage, WorkflowStageDefinition, WorkflowSummary,
 )
 from cairn.server.services import (
-    clear_project_reason, next_fact_id, next_hint_id, next_project_id, utcnow,
+    clear_project_reason, next_hint_id, next_project_id, utcnow,
 )
+from cairn.server.workflow_context import CONTEXT_VERSION, history_index_url, history_pointer, stage_instructions, stage_reference
 
 
 def get_workflow(conn: sqlite3.Connection, workflow_id: str) -> sqlite3.Row:
@@ -39,6 +40,7 @@ def workflow_detail(conn: sqlite3.Connection, workflow_id: str) -> WorkflowDetai
             collected_artifacts=list_artifacts(conn, row["project_id"]),
             artifact_recovery_attempts=row["artifact_recovery_attempts"],
             artifact_error=row["artifact_error"],
+            history_index_url=history_index_url(row["project_id"]) if row["project_id"] else None,
         ))
     return WorkflowDetail(workflow=WorkflowMeta(**dict(workflow)), stages=stages)
 
@@ -77,23 +79,9 @@ def create_workflow(conn: sqlite3.Connection, body: CreateWorkflowRequest) -> Wo
     return workflow_detail(conn, workflow_id)
 
 
-def _handoff(conn: sqlite3.Connection, row: sqlite3.Row) -> StageHandoff:
-    completion = StageCompletion.model_validate_json(row["completion_json"])
-    facts = conn.execute(
-        "SELECT id, description FROM facts WHERE project_id = ? AND id != 'goal' ORDER BY rowid",
-        (row["project_id"],),
-    ).fetchall()
-    return StageHandoff(
-        stage_id=row["id"], project_id=row["project_id"],
-        completion_description=completion.description, from_=completion.from_,
-        facts=[Fact(**dict(fact)) for fact in facts],
-        artifacts=list_artifacts(conn, row["project_id"]),
-    )
-
-
 def _activate_stage(
     conn: sqlite3.Connection, workflow: sqlite3.Row, row: sqlite3.Row,
-    definition: WorkflowStageDefinition, handoffs: list[StageHandoff],
+    definition: WorkflowStageDefinition, source_stages: list[sqlite3.Row], history_ids: list[str],
 ) -> None:
     project_id = next_project_id(conn)
     now = utcnow()
@@ -106,15 +94,7 @@ def _activate_stage(
     for fact_id, description in (("origin", workflow["origin"]), ("goal", definition.goal)):
         conn.execute("INSERT INTO facts (id, project_id, description) VALUES (?, ?, ?)",
                      (fact_id, project_id, description))
-    instructions = (
-        f"Workflow {workflow['id']}, stage {definition.id} ({definition.kind}). "
-        "Achieve this stage's goal only. Other stages have separate goals. "
-        "All stages share this working directory. Preserve prerequisite files. "
-        f"Write new artifacts under artifacts/{definition.id}/ to avoid overwriting other stages. "
-        "Include useful file paths and evidence references in your findings and completion explanation. "
-        "Prerequisite findings below are inherited claims, not independent verification."
-    )
-    hints = [instructions]
+    hints = [stage_instructions(workflow["id"], definition), history_pointer(project_id)]
     if definition.artifacts:
         paths = ", ".join(artifact.path for artifact in definition.artifacts)
         hints.append(
@@ -122,18 +102,6 @@ def _activate_stage(
             "directory before reporting completion. The dispatcher will collect them as downloadable "
             "artifacts. File existence does not by itself prove the stage's substantive goal."
         )
-    for handoff in handoffs:
-        # A local fact lets reason workers cite dependency completion without confusing
-        # identically named fact IDs from different projects.
-        fact_id = next_fact_id(conn, project_id)
-        sources = ", ".join(f"{handoff.project_id}/{fid}" for fid in handoff.from_)
-        conn.execute("INSERT INTO facts (id, project_id, description) VALUES (?, ?, ?)", (
-            fact_id, project_id,
-            f"Stage {handoff.stage_id} completed: {handoff.completion_description}\nEvidence: {sources}",
-        ))
-        # Bootstrap receives hints instead of the full graph, so it needs the same
-        # frozen dependency snapshot available to later reason/explore tasks.
-        hints.append("Prerequisite handoff:\n" + handoff.model_dump_json(by_alias=True))
     for content in hints:
         hint_id = next_hint_id(conn, project_id)
         conn.execute(
@@ -141,8 +109,10 @@ def _activate_stage(
             (hint_id, project_id, content, "workflow", now),
         )
     conn.execute(
-        "UPDATE workflow_stages SET project_id = ?, handoffs_json = ? WHERE workflow_id = ? AND id = ?",
-        (project_id, json.dumps([h.model_dump(by_alias=True) for h in handoffs]), workflow["id"], row["id"]),
+        "UPDATE workflow_stages SET project_id = ?, handoffs_json = ?, history_stage_ids_json = ?, context_version = ? "
+        "WHERE workflow_id = ? AND id = ?",
+        (project_id, json.dumps([stage_reference(conn, source, project_id).model_dump() for source in source_stages]),
+         json.dumps(history_ids), CONTEXT_VERSION, workflow["id"], row["id"]),
     )
 
 
@@ -152,19 +122,21 @@ def advance_workflow(conn: sqlite3.Connection, workflow_id: str) -> None:
     if workflow["status"] != "active":
         return
     rows = conn.execute(
-        "SELECT * FROM workflow_stages WHERE workflow_id = ? ORDER BY position", (workflow_id,),
+        "SELECT id, project_id, definition_json, completion_json IS NOT NULL AS completed "
+        "FROM workflow_stages WHERE workflow_id = ? ORDER BY position", (workflow_id,),
     ).fetchall()
     by_id = {row["id"]: row for row in rows}
-    if all(row["completion_json"] is not None for row in rows):
+    if all(row["completed"] for row in rows):
         conn.execute("UPDATE workflows SET status = 'completed' WHERE id = ?", (workflow_id,))
         return
     for row in rows:
         if row["project_id"] is not None:
             continue
         definition = WorkflowStageDefinition.model_validate_json(row["definition_json"])
-        if all(by_id[dependency]["completion_json"] is not None for dependency in definition.depends_on):
+        if all(by_id[dependency]["completed"] for dependency in definition.depends_on):
             _activate_stage(conn, workflow, row, definition,
-                            [_handoff(conn, by_id[dependency]) for dependency in definition.depends_on])
+                            [by_id[dependency] for dependency in definition.depends_on],
+                            [source["id"] for source in rows if source["completed"]])
 
 
 def complete_workflow_stage(

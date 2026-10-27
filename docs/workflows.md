@@ -105,10 +105,52 @@ The server rejects duplicate stage IDs, missing prerequisites, and dependency cy
 
 ## What a stage receives
 
-Each stage receives the workflow's starting context, its own goal, and handoffs from its
-completed prerequisites. Handoffs retain the source stage/project IDs, findings, and the
-explanation that closed the previous goal. Each stage has its own fact graph, so unrelated
-exploration does not become one expanding project graph.
+Each stage starts with the workflow's starting instructions, its own goal and output
+requirements, and its own fact graph. Previous stages' findings and completion explanations
+are not copied into the new stage's prompt, hints, or graph. A small pointer tells the agent
+how to inspect earlier work if it needs it.
+
+Earlier work stays available on demand. The history index contains stage/project references
+and counts. The agent can choose a stage, list short finding previews, then retrieve an
+individual finding, intent, completion explanation, or artifact record. These reads are
+optional; the agent is not instructed to read the history in full before starting.
+
+History is scoped to stages that were already complete in the same workflow when the
+current stage started. This includes earlier completed branches, not just immediate
+prerequisites. Unrelated workflows, active stages, and future stages are excluded. Evidence
+IDs and original records remain available when the agent needs to trace a claim.
+
+The UI uses the same separation. Prior-stage references are cheap to display. Reading
+findings and opening a full source record require explicit actions, and polling does not
+fetch the historical records.
+
+The dispatcher gives each worker a scoped Python history reader. Its path appears in the
+optional-context part of the prompt. It supports `list`, `stage`, `facts`, `fact`, `intents`,
+`intent`, `hints`, `hint`, `completion`, and `artifacts`. Lists default to five items. A selected
+record defaults to a 4,000-character text window; `--text-offset` reads another window and
+`--full` deliberately retrieves the complete selected record. Nothing is fetched just by
+installing the reader or preparing the prompt.
+
+The reader uses the Cairn server API. Local workers normally use the dispatcher's `server`
+URL. For the shipped Compose setup with host-networked workers, the `cairn-server` hostname
+maps to the server's published localhost port. For custom or remote deployments, set an
+explicit worker-reachable address:
+
+```yaml
+runtime:
+  history_server_url: "http://your-cairn-server:8000"
+```
+
+The scoped index is `GET /projects/{id}/history?offset=0&limit=20`. Stage metadata supplies
+URLs for paged record previews, individual facts/intents/hints, completion, and artifacts.
+It does not return all the historical bodies in one response.
+
+Upgrading existing databases removes exact generated copies of old prerequisite handoffs
+and replaces copied provenance facts with short pointers while retaining their IDs. Original
+source records and user-written notes remain available. For legacy stages, history access
+uses completed dependency ancestors because their exact activation order was not recorded.
+
+## Working files and artifacts
 
 Stages in a workflow share a runtime workspace. Files remain available to subsequent
 stages. Declared output paths must be distinct across the whole workflow. A revision stage
@@ -169,8 +211,9 @@ policies, nested reusable workflows, a source library, or a rendered book/report
 Further research can be planned as intermediate stages, and agents can explore new intents
 within each stage.
 
-The handoff is still text, and a large prerequisite can produce a large handoff. Book-sized
-research will also need selective evidence retrieval and summaries at several levels.
+The current stage's own graph can still grow during a long investigation. This change
+prevents previous stages from expanding the starting context; it does not summarize or
+compact the current stage's local work automatically.
 
 ## Development verification
 

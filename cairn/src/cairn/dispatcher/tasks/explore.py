@@ -4,6 +4,7 @@ import logging
 import time
 
 from cairn.dispatcher.config import DispatchConfig, WorkerConfig
+from cairn.dispatcher.history import add_optional_history
 from cairn.dispatcher.contracts import parse_json_output, validate_explore_payload
 from cairn.dispatcher.prompting import load_prompt, render_prompt
 from cairn.dispatcher.protocol.client import CairnClient
@@ -100,6 +101,7 @@ def run_explore_task(
             },
         )
 
+        prompt = add_optional_history(prompt, config, container_manager, container_name, project)
         session = driver.prepare_session()
         execute = driver.build_execute(worker, prompt, session)
         session = execute.session
@@ -287,7 +289,8 @@ def _try_conclude_fallback(
         best_effort_release(client, project_id, intent.id, worker.name)
         return "failed"
 
-    container_name = container_manager.ensure_running(client.get_project(project_id).project.runtime_id)
+    project = client.get_project(project_id)
+    container_name = container_manager.ensure_running(project.project.runtime_id)
 
     prompt = render_prompt(
         load_prompt(config.runtime.prompt_group, "explore_conclude.md"),
@@ -302,6 +305,7 @@ def _try_conclude_fallback(
             "intent_description": intent.description,
         },
     )
+    prompt = add_optional_history(prompt, config, container_manager, container_name, project)
     conclude_argv = driver.build_conclude(worker, prompt, session)
     LOG.info("starting conclude fallback project=%s intent=%s worker=%s", project_id, intent.id, worker.name)
     conclude_started = time.perf_counter()

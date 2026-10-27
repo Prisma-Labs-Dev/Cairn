@@ -34,8 +34,9 @@ Cairn is a general-purpose problem-solving engine. <br/>Given an origin and a go
 
 Chain several goals into a workflow, or run independent research stages in parallel and
 join their results. A stage starts only when all its prerequisites complete. Each stage
-keeps its own Cairn fact graph; later stages receive earlier findings and share the workflow's
-working files. A stage can require a goal, specified output files, or both. Required artifacts
+keeps its own Cairn fact graph; later stages can inspect earlier findings on demand and share
+the workflow's working files. Earlier findings are not copied into every stage's prompt.
+A stage can require a goal, specified output files, or both. Required artifacts
 are collected before the next stage unlocks. The UI shows goals, progress, completion
 explanations, and artifact downloads.
 

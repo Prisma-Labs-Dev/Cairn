@@ -4,6 +4,7 @@ import logging
 import time
 
 from cairn.dispatcher.config import DispatchConfig, WorkerConfig
+from cairn.dispatcher.history import add_optional_history
 from cairn.dispatcher.artifacts import capture_required_artifacts
 from cairn.dispatcher.contracts import parse_json_output, validate_reason_payload
 from cairn.dispatcher.prompting import (
@@ -116,6 +117,7 @@ def run_reason_task(
             },
         )
 
+        prompt = add_optional_history(prompt, config, container_manager, container_name, project)
         session = driver.prepare_session()
         command = driver.build_execute(worker, prompt, session)
         execute_started = time.perf_counter()

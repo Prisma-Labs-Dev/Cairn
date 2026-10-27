@@ -3,6 +3,8 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 import json
 import os
+import pathlib
+import re
 import subprocess
 import sys
 import threading
@@ -313,6 +315,19 @@ def test_workflow_runs_stages_and_hands_off_real_files_with_remove_cleanup(
     class ResearchDriver(MockDriver):
         def build_execute(self, worker, prompt, session):
             # Exercise actual subprocesses in the real local backend. No model calls.
+            context = json.loads(prompt)
+            source_path = ""
+            if context["goal"] != "Collect evidence":
+                assert "artifacts/research/sources.md" not in prompt
+                assert "Source A corroborates source B" not in prompt
+                reader_path = re.search(r"python3 ([^` ]+) --help", context["optional_history"]).group(1)
+                reader_config = json.loads(pathlib.Path(reader_path).with_name("config.json").read_text())
+                # The simulated writer deliberately asks for one source stage's artifact.
+                # History is retrieved here because it is needed, not supplied in its prompt.
+                history = http_client.get(f"/projects/{reader_config['project_id']}/history").json()
+                source = history["items"][0]
+                artifacts = http_client.get(source["context_url"] + "/artifacts").json()
+                source_path = artifacts[0]["path"]
             script = """
 import json, pathlib, sys
 context = json.loads(sys.argv[1])
@@ -322,8 +337,8 @@ if context['goal'] == 'Collect evidence':
     path.write_text('Source A corroborates source B', encoding='utf-8')
     description = 'Evidence is in artifacts/research/sources.md'
 else:
-    assert any('artifacts/research/sources.md' in hint['content'] for hint in context['hints'])
-    evidence = pathlib.Path('artifacts/research/sources.md').read_text(encoding='utf-8')
+    assert 'artifacts/research/sources.md' not in sys.argv[1]
+    evidence = pathlib.Path(sys.argv[2]).read_text(encoding='utf-8')
     assert evidence == 'Source A corroborates source B'
     path = pathlib.Path('artifacts/write/book.md')
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -332,7 +347,7 @@ else:
 print(json.dumps({'accepted': True, 'data': {'fact': {'description': description},
     'complete': {'description': description}}}))
 """
-            return DriverResult(argv=[sys.executable, "-c", script, prompt], session=session)
+            return DriverResult(argv=[sys.executable, "-c", script, prompt, source_path], session=session)
 
     monkeypatch.setattr(bootstrap_module, "get_driver", lambda *_: ResearchDriver())
     config = _config(bootstrap=_phase("complete"), reason=_phase("complete", zero_outcomes=["intent"]), explore=_phase("fact"))
@@ -365,7 +380,9 @@ print(json.dumps({'accepted': True, 'data': {'fact': {'description': description
     assert (workspace / "artifacts/write/book.md").read_text() == "Investigation: Source A corroborates source B"
     assert len(list((tmp_path / "runs").iterdir())) == 1
     research_artifact = detail["stages"][0]["collected_artifacts"][0]
-    assert detail["stages"][1]["handoffs"][0]["artifacts"] == [research_artifact]
+    handoff = detail["stages"][1]["handoffs"][0]
+    assert handoff["artifact_count"] == 1
+    assert http_client.get(handoff["context_url"] + "/artifacts").json() == [research_artifact]
     assert http_client.get(research_artifact["download_url"]).content == b"Source A corroborates source B"
     output = detail["stages"][1]["collected_artifacts"][0]
     assert http_client.get(output["download_url"]).content == b"Investigation: Source A corroborates source B"

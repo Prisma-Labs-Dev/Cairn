@@ -67,7 +67,9 @@ def test_required_outputs_gate_completion_and_download_survives_restart(client, 
     assert complete(client, project_id).status_code == 200
     detail = client.get(f"/workflows/{workflow['workflow']['id']}").json()
     assert detail["stages"][0]["collected_artifacts"][0]["id"] == artifact["id"]
-    assert detail["stages"][1]["handoffs"][0]["artifacts"][0]["id"] == artifact["id"]
+    handoff = detail["stages"][1]["handoffs"][0]
+    assert handoff["artifact_count"] == 1
+    assert client.get(f"{handoff['context_url']}/artifacts").json()[0]["id"] == artifact["id"]
 
     original_db = db._db_path
     monkeypatch.setattr(db, "_db_path", None)
