@@ -110,3 +110,17 @@ def retry_choice_option(workflow_id: str, parent_id: str, body: RetryChoiceReque
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
         return retry_choice(conn, workflow_id, parent_id, body)
+
+
+@router.get("/workflows/{workflow_id}/collections/{name}")
+def collection(workflow_id: str, name: str):
+    from cairn.server.workflow_service import collection_manifest, get_workflow
+    with get_conn() as conn:
+        get_workflow(conn, workflow_id)
+        return collection_manifest(conn, workflow_id, name)
+
+
+@router.get("/workflows/{workflow_id}/collections")
+def collections(workflow_id: str):
+    with get_conn() as conn:
+        return workflow_detail(conn, workflow_id).collections

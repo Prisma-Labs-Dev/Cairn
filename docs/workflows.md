@@ -106,8 +106,36 @@ This longer example shows how the same mechanism can support research and synthe
 ```
 
 To add a parallel branch, give two stages the same prerequisite. A joining stage must
-list both IDs in `depends_on`. Every listed prerequisite must complete before it starts.
+list both IDs in `depends_on`. Every listed prerequisite must satisfy its gate before it
+starts. Structured dependencies can explicitly permit a not-applicable predecessor.
 The server rejects duplicate stage IDs, missing prerequisites, and dependency cycles.
+
+## Conditional work and typed results
+
+A stage can declare a flat `result` field contract and a successor can depend on a
+server-evaluated comparison such as `research.result.relevant_count > 0`. Result values
+arrive in the ordinary completion request and become available only after all configured
+completion gates pass. Pending review does not unlock later work. Types check the shape of
+a claim; evidence and review assess its accuracy.
+
+A false condition resolves a stage as `not_applicable` with a retained reason. It does not
+start a project or claim the goal was achieved. `blocked` remains the waiting state.
+Successful research that finds nothing remains completed with a negative result. A join
+must explicitly set `allow_not_applicable: true` on each prerequisite whose absence it
+accepts. Every other dependency remains required.
+
+An all-goal discovery stage may declare `emits: {collection: name, result: {...}}` to give
+its generated members an inherited result contract. Collection dependencies address the
+recorded member set. The manifest includes member outcomes, accepted results, and artifact
+references, including explicit empty discovery and inapplicable outcomes. It does not infer
+membership from files matching a glob.
+
+The [authoring guide](workflow-authoring.md#branch-on-accepted-findings) has a complete
+conditional research example, the completion contract, and collection API. The adopted
+[RFC](rfc/0001-conditional-workflows.md) records the lifecycle choices and differences from
+the original proposal. Use **Edit full JSON definition** in the creation UI or the CLI's
+JSON/YAML files to author these advanced fields. Accepted results are immutable; revise the
+workflow explicitly if later evidence changes a completed premise.
 
 ## Discover goals while working
 

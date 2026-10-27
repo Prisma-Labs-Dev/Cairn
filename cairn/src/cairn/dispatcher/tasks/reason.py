@@ -189,7 +189,7 @@ def run_reason_task(
             payload = parse_json_output(model_output)
             kind, data = validate_reason_payload(
                 payload, open_intents_empty=not open_intents, max_intents=config.tasks.reason.max_intents,
-                expansion_max_goals=project.expansion.max_goals if project.expansion else None,
+                expansion_max_goals=project.expansion.max_goals if project.expansion else None, result_contract=project.result_contract,
             )
         except Exception as exc:
             LOG.warning(
@@ -202,7 +202,7 @@ def run_reason_task(
                 preview(result.stdout),
                 preview(result.stderr),
             )
-            if project.expansion:
+            if project.expansion or project.result_contract:
                 return recover_expansion(client, project, worker.name, exc)
             return "failed"
         if kind == "rejected":
@@ -226,14 +226,14 @@ def run_reason_task(
                 # checkpoint so repeated completion attempts cannot starve it.
                 return "success"
             kwargs = {"goals": data["goals"]} if "goals" in data else {}
-            kwargs.update({key: data[key] for key in ("selected_goal", "selection_reason") if key in data})
+            kwargs.update({key: data[key] for key in ("selected_goal", "selection_reason", "result") if key in data})
             if project.project.verification_enabled:
                 kwargs.update(producer_agent_id=producer_agent_id, producer_session_id=session or producer_session_id)
             response = client.complete(project.project.id, data["from"], data["description"], worker.name, **kwargs)
             if response.status_code == 403:
                 LOG.info("project became inactive during reason complete project=%s worker=%s", project.project.id, worker.name)
                 return "success"
-            if project.expansion and response.status_code in (409, 422):
+            if (project.expansion or project.result_contract) and response.status_code in (409, 422):
                 return recover_expansion(client, project, worker.name, response.text)
             if not response.ok:
                 LOG.warning(

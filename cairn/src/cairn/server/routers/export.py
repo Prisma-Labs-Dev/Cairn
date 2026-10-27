@@ -85,6 +85,10 @@ def _export_yaml(conn, project_id: str) -> str:
             "history_index_url": history_index_url(project_id),
             "expansion": definition.get("expansion"),
             "choice_option": stage["option_state"] == "selected",
+            "result_contract": definition.get("result", {}),
+            "accepted_result": json.loads(stage["completion_json"]).get("result") if stage["completion_json"] else None,
+            "workflow_outcomes_url": f"/workflows/{proj['workflow_id']}",
+            "collections_url": f"/workflows/{proj['workflow_id']}/collections",
         }
 
     if hints:

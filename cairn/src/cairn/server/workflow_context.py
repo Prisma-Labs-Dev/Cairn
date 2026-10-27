@@ -6,6 +6,7 @@ import sqlite3
 from fastapi import HTTPException
 
 from cairn.server.artifact_service import list_artifacts
+from cairn.server.workflow_conditions import dependency_stage
 from cairn.server.models import Fact, Hint, StageCompletion, StageHandoff, WorkflowStageDefinition
 from cairn.server.services import get_project_or_404, intent_to_model, next_hint_id, utcnow
 
@@ -198,13 +199,15 @@ def migrate_legacy_stage_contexts(conn: sqlite3.Connection) -> None:
         all_rows = conn.execute("SELECT * FROM workflow_stages WHERE workflow_id = ?", (row["workflow_id"],)).fetchall()
         by_id = {stage["id"]: stage for stage in all_rows}
         ancestors: set[str] = set()
-        pending = list(json.loads(row["definition_json"]).get("depends_on", []))
+        definitions = {stage["id"]: WorkflowStageDefinition.model_validate_json(stage["definition_json"]) for stage in all_rows}
+        collections = {definition.emits.collection: definition.id for definition in definitions.values() if definition.emits}
+        pending = [dependency_stage(dependency, collections) for dependency in definitions[row["id"]].depends_on]
         while pending:
             source_id = pending.pop()
             if source_id in ancestors or source_id not in by_id:
                 continue
             ancestors.add(source_id)
-            pending.extend(json.loads(by_id[source_id]["definition_json"]).get("depends_on", []))
+            pending.extend(dependency_stage(dependency, collections) for dependency in definitions[source_id].depends_on)
         history_ids = [stage["id"] for stage in all_rows if stage["id"] in ancestors and stage["completion_json"]]
         legacy_handoffs = json.loads(row["handoffs_json"])
         refs = []

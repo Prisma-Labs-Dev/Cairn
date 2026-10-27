@@ -33,12 +33,14 @@ Cairn is a general-purpose problem-solving engine. <br/>Given an origin and a go
 ## Staged workflows in this fork
 
 Chain several goals into a workflow, or run independent research stages in parallel and
-join their results. A stage starts only when all its prerequisites complete. Each stage
+join their results. A stage starts when all its prerequisites satisfy their declared completion gates. Each stage
 keeps its own Cairn fact graph; later stages can inspect earlier findings on demand and share
 the workflow's working files. Earlier findings are not copied into every stage's prompt.
 A stage can require a goal, specified output files, or both. Required artifacts
 are collected before the next stage unlocks. The UI shows goals, progress, completion
-explanations, and artifact downloads.
+explanations, and artifact downloads. Typed results and server-evaluated conditions can
+make later work conditional. Stages that do not apply retain their reasons, while named
+collections expose results and artifacts from bounded generated work.
 
 See [Staged workflows](docs/workflows.md) for the creation flow, a research-to-manuscript
 example, API usage, file retention, and current limits. Existing single-project runs still work.

@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from cairn.server.artifact_service import list_artifacts
+from cairn.server.workflow_conditions import StageDependency, CollectionDependency, dependency_stage, evaluate_predicate, validate_result
 from cairn.server.choice_service import is_choice, choice_satisfied, record_option_event, finish_selected_option
 from cairn.server.models import (
     CreateWorkflowRequest, StageCompletion, WorkflowDetail,
@@ -37,7 +38,9 @@ def workflow_detail(conn: sqlite3.Connection, workflow_id: str) -> WorkflowDetai
     ):
         stages.append(WorkflowStage(
             **json.loads(row["definition_json"]),
-            status=row["project_status"] or "blocked",
+            status="not_applicable" if row["not_applicable_reason"] else row["project_status"] or "blocked",
+            not_applicable_reason=row["not_applicable_reason"], resolved_at=row["resolved_at"],
+            result_recovery_attempts=row["result_recovery_attempts"], result_error=row["result_error"],
             project_id=row["project_id"],
             pending_review_id=row["pending_review_id"],
             completion=json.loads(row["completion_json"]) if row["completion_json"] else None,
@@ -53,7 +56,8 @@ def workflow_detail(conn: sqlite3.Connection, workflow_id: str) -> WorkflowDetai
             option_history=json.loads(row["option_history_json"]), choice_error=row["choice_error"],
             choice_satisfied=choice_satisfied(conn, workflow_id, row["id"]) if is_choice(row) else None,
         ))
-    return WorkflowDetail(workflow=WorkflowMeta(**dict(workflow)), stages=stages)
+    collections = [collection_manifest(conn, workflow_id, stage.emits.collection) for stage in stages if stage.emits]
+    return WorkflowDetail(workflow=WorkflowMeta(**dict(workflow)), stages=stages, collections=collections)
 
 
 def workflow_summaries(conn: sqlite3.Connection, *, trashed: bool = False) -> list[WorkflowSummary]:
@@ -64,7 +68,8 @@ def workflow_summaries(conn: sqlite3.Connection, *, trashed: bool = False) -> li
                SUM(CASE WHEN s.option_state IN ('pending','unavailable','skipped') THEN 0 ELSE 1 END)
                + SUM(CASE WHEN s.choice_error IS NOT NULL THEN 1 ELSE 0 END) AS stage_count,
                SUM(CASE WHEN p.status = 'completed' THEN 1 ELSE 0 END) AS completed_stage_count,
-               SUM(CASE WHEN p.status = 'active' THEN 1 ELSE 0 END) AS active_stage_count
+               SUM(CASE WHEN p.status = 'active' THEN 1 ELSE 0 END) AS active_stage_count,
+               SUM(CASE WHEN s.not_applicable_reason IS NOT NULL THEN 1 ELSE 0 END) AS not_applicable_stage_count
         FROM workflows w
         LEFT JOIN workflow_stages s ON s.workflow_id = w.id
         LEFT JOIN projects p ON p.id = s.project_id
@@ -145,53 +150,122 @@ def _activate_stage(
     )
 
 
+def collection_manifest(conn, workflow_id, name):
+    rows = conn.execute("SELECT s.*,p.status AS project_status FROM workflow_stages s LEFT JOIN projects p ON p.id=s.project_id WHERE s.workflow_id=? ORDER BY s.position", (workflow_id,)).fetchall()
+    emitter = next((row for row in rows if (json.loads(row["definition_json"]).get("emits") or {}).get("collection") == name), None)
+    if emitter is None:
+        raise HTTPException(404, "Collection not found")
+    members = []
+    for row in rows:
+        if row["generated_by_stage_id"] != emitter["id"]:
+            continue
+        completion = json.loads(row["completion_json"]) if row["completion_json"] else None
+        members.append({"stage_id": row["id"], "project_id": row["project_id"],
+                        "status": "not_applicable" if row["not_applicable_reason"] else row["project_status"] or "blocked",
+                        "result": completion.get("result") if completion else None,
+                        "artifacts": json.loads(row["accepted_artifacts_json"]) if completion else [],
+                        "not_applicable_reason": row["not_applicable_reason"]})
+    sealed = bool(emitter["completion_json"] or emitter["not_applicable_reason"])
+    return {"name": name, "emitter_stage_id": emitter["id"], "sealed": sealed,
+            "ready": bool(emitter["completion_json"]) and all(member["status"] in ("completed", "not_applicable") for member in members),
+            "not_applicable_reason": emitter["not_applicable_reason"], "members": members}
+
+
+def result_contract_for_project(conn, project_id):
+    row = conn.execute("SELECT definition_json FROM workflow_stages WHERE project_id=?", (project_id,)).fetchone()
+    return WorkflowStageDefinition.model_validate_json(row["definition_json"]).result if row else {}
+
+
+def validate_project_result(conn, project_id, result):
+    try:
+        validate_result(result_contract_for_project(conn, project_id), result)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if conn.execute("SELECT 1 FROM intents WHERE project_id=? AND creator='stage-result' AND concluded_at IS NULL", (project_id,)).fetchone():
+        raise HTTPException(409, "Finish the pending stage result correction before completing")
+
+
 def advance_workflow(conn: sqlite3.Connection, workflow_id: str) -> None:
-    """Call inside the same write transaction that creates/completes a stage."""
+    """Resolve gates and dispatch within the caller's serialized write transaction."""
     workflow = get_workflow(conn, workflow_id)
     if workflow["status"] != "active" or workflow["deleted_at"] is not None:
         return
-    rows = conn.execute("SELECT * FROM workflow_stages WHERE workflow_id = ? ORDER BY position", (workflow_id,)).fetchall()
-    by_id = {row["id"]: row for row in rows}
-    def satisfied(row):
-        return bool(row["completion_json"]) and (not is_choice(row) or choice_satisfied(conn, workflow_id, row["id"]))
-    for row in rows:
-        if row["choice_error"]:
+    # Each pass can resolve at least one previously unresolved stage. Refresh rows
+    # so definition order cannot delay propagation or a permitted partial join.
+    for _ in range(129):
+        rows = conn.execute("SELECT * FROM workflow_stages WHERE workflow_id=? ORDER BY position", (workflow_id,)).fetchall()
+        by_id = {row["id"]: row for row in rows}
+        collections = {json.loads(row["definition_json"])["emits"]["collection"]: row["id"] for row in rows if json.loads(row["definition_json"]).get("emits")}
+        def satisfied(row):
+            return bool(row["completion_json"]) and (not is_choice(row) or choice_satisfied(conn, workflow_id, row["id"]))
+        if any(row["choice_error"] for row in rows):
             set_workflow_status(conn, workflow_id, "stopped")
             return
-    required = [row for row in rows if row["option_state"] not in ("pending", "unavailable", "skipped")]
-    if all(satisfied(row) for row in required):
-        conn.execute("UPDATE workflows SET status = 'completed' WHERE id = ?", (workflow_id,))
-        return
-    for row in rows:
-        if row["project_id"] is not None or row["option_state"] in ("pending", "unavailable", "skipped"):
-            continue
-        definition = WorkflowStageDefinition.model_validate_json(row["definition_json"])
-        def dependency_ready(dependency):
-            source = by_id[dependency]
-            # A selected option starts from discovery's raw completion. Other
-            # successors wait until that discovery's choice has actually succeeded.
-            if row["option_state"] == "selected" and row["generated_by_stage_id"] == dependency:
-                return bool(source["completion_json"])
-            return satisfied(source)
-        if all(dependency_ready(dependency) for dependency in definition.depends_on):
-            _activate_stage(conn, workflow, row, definition,
-                            [by_id[dependency] for dependency in definition.depends_on],
-                            [source["id"] for source in rows if source["completion_json"]])
+        required = [row for row in rows if row["option_state"] not in ("pending", "unavailable", "skipped")]
+        if all(satisfied(row) or row["not_applicable_reason"] for row in required):
+            conn.execute("UPDATE workflows SET status='completed' WHERE id=?", (workflow_id,))
+            return
+        changed = False
+        for row in rows:
+            if row["project_id"] is not None or row["not_applicable_reason"] or row["option_state"] in ("pending", "unavailable", "skipped"):
+                continue
+            definition = WorkflowStageDefinition.model_validate_json(row["definition_json"])
+            waiting = False
+            absent = []
+            sources = []
+            compact = []
+            for dependency in definition.depends_on:
+                source_id = dependency_stage(dependency, collections)
+                source = by_id[source_id]
+                allow_absent = not isinstance(dependency, str) and dependency.allow_not_applicable
+                if source["not_applicable_reason"]:
+                    compact.append({"stage_id": source_id, "status": "not_applicable", "reason": source["not_applicable_reason"]})
+                    if not allow_absent:
+                        absent.append(f"Dependency {source_id} is not applicable")
+                    continue
+                if isinstance(dependency, CollectionDependency):
+                    manifest = collection_manifest(conn, workflow_id, dependency.collection)
+                    if not manifest["ready"]:
+                        waiting = True
+                    compact.append({"collection": dependency.collection, "url": f"/workflows/{workflow_id}/collections/{dependency.collection}"})
+                elif row["option_state"] == "selected" and row["generated_by_stage_id"] == source_id:
+                    waiting |= not bool(source["completion_json"])
+                elif not satisfied(source):
+                    waiting = True
+                if source["completion_json"]:
+                    sources.append(source)
+                    result = json.loads(source["completion_json"]).get("result")
+                    if isinstance(dependency, StageDependency) and dependency.when and satisfied(source) and not evaluate_predicate(dependency.when, result):
+                        absent.append(f"Condition is false: {dependency.when}")
+                    if result is not None:
+                        compact.append({"stage_id": source_id, "status": "completed", "result_url": f"/projects/{{requesting_project_id}}/history/{source_id}/completion"})
+            if waiting:
+                continue
+            if absent:
+                conn.execute("UPDATE workflow_stages SET not_applicable_reason=?,resolved_at=? WHERE workflow_id=? AND id=?", ("; ".join(absent), utcnow(), workflow_id, row["id"]))
+            else:
+                _activate_stage(conn, workflow, row, definition, sources, [source["id"] for source in rows if source["completion_json"]])
+                if compact:
+                    project_id = conn.execute("SELECT project_id FROM workflow_stages WHERE workflow_id=? AND id=?", (workflow_id, row["id"])).fetchone()[0]
+                    conn.execute("INSERT INTO hints(id,project_id,content,creator,created_at) VALUES(?,?,?,?,?)", (next_hint_id(conn, project_id), project_id, "Dependency outcomes: " + json.dumps(compact).replace("{requesting_project_id}", project_id), "workflow", utcnow()))
+            changed = True
+        if not changed:
+            return
 
 
 def complete_workflow_stage(
     conn: sqlite3.Connection, project: sqlite3.Row, description: str, from_ids: list[str], now: str,
     goals: list[GeneratedGoalDefinition] | None = None, selected_goal: str | None = None,
-    selection_reason: str | None = None,
+    selection_reason: str | None = None, result: dict | None = None,
 ) -> None:
     if project["workflow_id"] is None:
         return
     completion = StageCompletion(project_id=project["id"], description=description,
                                  from_=from_ids, completed_at=now, goals=goals,
-                                 selected_goal=selected_goal, selection_reason=selection_reason)
+                                 selected_goal=selected_goal, selection_reason=selection_reason, result=result)
     conn.execute(
-        "UPDATE workflow_stages SET completion_json = ? WHERE workflow_id = ? AND id = ?",
-        (completion.model_dump_json(by_alias=True), project["workflow_id"], project["workflow_stage_id"]),
+        "UPDATE workflow_stages SET completion_json = ?,resolved_at=?,accepted_artifacts_json=? WHERE workflow_id = ? AND id = ?",
+        (completion.model_dump_json(by_alias=True), now, json.dumps([artifact.model_dump(mode="json") for artifact in list_artifacts(conn, project["id"])]), project["workflow_id"], project["workflow_stage_id"]),
     )
     finish_selected_option(conn, project, description)
     advance_workflow(conn, project["workflow_id"])
@@ -207,7 +281,7 @@ def set_workflow_status(conn: sqlite3.Connection, workflow_id: str, status: str)
     if workflow["status"] == "stopped" and status == "active":
         conn.execute(
             "UPDATE workflow_stages SET artifact_recovery_attempts = 0, artifact_error = NULL, "
-            "expansion_recovery_attempts = 0, expansion_error = NULL "
+            "expansion_recovery_attempts = 0, expansion_error = NULL, result_recovery_attempts=0,result_error=NULL "
             "WHERE workflow_id = ? AND completion_json IS NULL",
             (workflow_id,),
         )
@@ -306,16 +380,17 @@ def append_generated_goals(
     rows = conn.execute("SELECT id,position,definition_json,project_id FROM workflow_stages WHERE workflow_id = ? ORDER BY position",
                         (workflow_id,)).fetchall()
     definitions = [WorkflowStageDefinition.model_validate_json(row["definition_json"]) for row in rows]
+    parent_definition = next(definition for definition in definitions if definition.id == parent_id)
     children = [WorkflowStageDefinition(
         **{**goal.model_dump(exclude_none=True), "id": goal.id or _generated_goal_id(parent_id, index), "depends_on": [parent_id],
-            "verification_enabled": bool(project["verification_enabled"])},
+            "verification_enabled": bool(project["verification_enabled"]), "result": parent_definition.emits.result if parent_definition.emits else {}},
     ) for index, goal in enumerate(goals, 1)]
     child_ids = [child.id for child in children]
     if expansion.mode == "one" and selected_goal not in child_ids:
         raise HTTPException(409, "selected_goal must reference one of the ranked generated goal IDs")
     updated_successors = []
     for row, definition in zip(rows, definitions):
-        if expansion.mode == "all" and parent_id in definition.depends_on:
+        if expansion.mode == "all" and any((dependency == parent_id if isinstance(dependency, str) else isinstance(dependency, StageDependency) and dependency.stage == parent_id) for dependency in definition.depends_on):
             if row["project_id"] is not None:
                 raise HTTPException(409, "A direct successor has already started; expansion cannot change its dependencies")
             definition.depends_on = [*definition.depends_on, *child_ids]
@@ -374,4 +449,26 @@ def request_expansion_recovery(conn: sqlite3.Connection, project: sqlite3.Row, d
     conn.execute("INSERT INTO intent_sources(intent_id,project_id,fact_id) VALUES(?,?,'origin')", (intent_id, project["id"]))
     conn.execute("UPDATE workflow_stages SET expansion_recovery_attempts = expansion_recovery_attempts + 1 WHERE project_id = ?",
                  (project["id"],))
+    return {"status": "scheduled", "attempts": attempts + 1, "intent_id": intent_id}
+
+
+def request_result_recovery(conn, project, description):
+    contract = result_contract_for_project(conn, project["id"])
+    if not contract:
+        raise HTTPException(409, "This project has no typed result contract")
+    existing = conn.execute("SELECT id FROM intents WHERE project_id=? AND creator='stage-result' AND concluded_at IS NULL", (project["id"],)).fetchone()
+    if existing:
+        return {"status": "existing", "intent_id": existing["id"]}
+    stage = conn.execute("SELECT result_recovery_attempts FROM workflow_stages WHERE project_id=?", (project["id"],)).fetchone()
+    attempts = stage["result_recovery_attempts"]
+    error = "Stage result correction: " + description[:1000]
+    if attempts >= 3:
+        conn.execute("UPDATE workflow_stages SET result_error=? WHERE project_id=?", (error, project["id"]))
+        set_workflow_status(conn, project["workflow_id"], "stopped")
+        return {"status": "paused", "attempts": attempts}
+    intent_id = next_intent_id(conn, project["id"])
+    error += " Achieve the original goal and return complete.result with exactly this contract: " + json.dumps({name: field.model_dump(exclude_none=True) for name, field in contract.items()})
+    conn.execute("INSERT INTO intents(id,project_id,description,creator,created_at) VALUES(?,?,?,?,?)", (intent_id, project["id"], error, "stage-result", utcnow()))
+    conn.execute("INSERT INTO intent_sources(intent_id,project_id,fact_id) VALUES(?,?,'origin')", (intent_id, project["id"]))
+    conn.execute("UPDATE workflow_stages SET result_recovery_attempts=result_recovery_attempts+1 WHERE project_id=?", (project["id"],))
     return {"status": "scheduled", "attempts": attempts + 1, "intent_id": intent_id}

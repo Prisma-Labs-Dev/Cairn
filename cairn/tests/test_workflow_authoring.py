@@ -19,7 +19,7 @@ YAML_DEFINITIONS = re.findall(r'```yaml\n(.*?)\n```', TEXT, re.S)
 JSON_EXAMPLES = [json.loads(block) for block in re.findall(r'```json\n(.*?)\n```', TEXT, re.S)]
 
 
-@pytest.mark.parametrize('definition', YAML_DEFINITIONS, ids=['minimal', 'required_parallel_join', 'ranked_choice'])
+@pytest.mark.parametrize('definition', YAML_DEFINITIONS, ids=['minimal', 'required_parallel_join', 'ranked_choice', 'conditional_collection'])
 def test_authoring_yaml_is_a_complete_offline_creation_body(definition, monkeypatch):
     def no_create(*_args, **_kwargs):
         pytest.fail('A documented dry run must not create work or contact a server')
@@ -33,8 +33,8 @@ def test_authoring_yaml_is_a_complete_offline_creation_body(definition, monkeypa
 
 
 def test_authoring_examples_keep_creation_and_worker_contracts_separate():
-    assert len(YAML_DEFINITIONS) == 3
-    minimal, parallel, choice = [CreateWorkflowRequest.model_validate(yaml.safe_load(block)) for block in YAML_DEFINITIONS]
+    assert len(YAML_DEFINITIONS) == 4
+    minimal, parallel, choice, conditional = [CreateWorkflowRequest.model_validate(yaml.safe_load(block)) for block in YAML_DEFINITIONS]
     assert minimal.stages[0].id == 'stage_1'
     assert not minimal.stages[0].verification_enabled
     assert parallel.stages[-1].depends_on == ['hosts', 'services']
@@ -42,7 +42,11 @@ def test_authoring_examples_keep_creation_and_worker_contracts_separate():
     assert choice.stages[0].expansion.mode == 'one'
     assert choice.stages[0].expansion.max_goals == 2
     assert choice.stages[-1].depends_on == ['choose_source']
-    creation, completion, unavailable, retry = JSON_EXAMPLES
+    assert conditional.stages[1].depends_on[0].when == 'select.result.relevant_count > 0'
+    assert conditional.stages[1].emits.collection == 'investigations'
+    assert conditional.stages[-1].depends_on[-1].allow_not_applicable
+    creation, generated_goal, completion, unavailable, retry = JSON_EXAMPLES
+    assert generated_goal['id'] == 'record_alpha'
     assert CreateWorkflowRequest.model_validate(creation) == minimal
     kind, body = validate_reason_payload(completion, open_intents_empty=True, max_intents=3, expansion_max_goals=2)
     assert kind == 'complete'

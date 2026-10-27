@@ -147,7 +147,7 @@ def run_bootstrap_task(
                 model_output = driver.extract_response_text(first.stdout, first.stderr)
                 payload = parse_json_output(model_output)
                 kind, data = validate_bootstrap_execute_payload(
-                    payload, project.expansion.max_goals if project.expansion else None,
+                    payload, project.expansion.max_goals if project.expansion else None, result_contract=project.result_contract,
                 )
             except Exception as exc:
                 LOG.warning(
@@ -161,8 +161,8 @@ def run_bootstrap_task(
                     preview(first.stdout),
                     preview(first.stderr),
                 )
-                if project.expansion:
-                    message = "The completion response could not be accepted because its goal expansion output was invalid: " + str(exc)[:1_000]
+                if project.expansion or project.result_contract:
+                    message = "The completion response could not be accepted because its structured outcome was invalid: " + str(exc)[:1_000]
                     closed = write_conclude_result(
                         client, project.project.id, intent.id, worker.name, message,
                         source="expansion_validation", phase_ms=execute_ms,
@@ -203,7 +203,7 @@ def run_bootstrap_task(
                 worker.name,
                 data["fact_description"],
                 data.get("complete_description", data.get("unavailable_description")),
-                goals=data.get("goals"),
+                goals=data.get("goals"), result=data.get("result"),
                 selected_goal=data.get("selected_goal"), selection_reason=data.get("selection_reason"),
                 unavailable=kind == "unavailable",
                 producer_agent_id=f"producer_{uuid.uuid4().hex}",
@@ -440,7 +440,7 @@ def _write_bootstrap_complete_result(
     source: str,
     phase_ms: int,
     total_ms: int | None = None,
-    goals: list[dict] | None = None,
+    goals: list[dict] | None = None, result: dict | None = None,
     selected_goal: str | None = None, selection_reason: str | None = None, unavailable: bool = False,
     producer_agent_id: str | None = None,
     producer_session_id: str | None = None,
@@ -477,6 +477,8 @@ def _write_bootstrap_complete_result(
     ):
         return "success"
     kwargs = {"goals": goals} if goals is not None else {}
+    if result is not None:
+        kwargs["result"] = result
     if selected_goal is not None:
         kwargs["selected_goal"] = selected_goal
     if selection_reason is not None:
@@ -484,7 +486,7 @@ def _write_bootstrap_complete_result(
     if project.project.verification_enabled:
         kwargs.update(producer_agent_id=producer_agent_id, producer_session_id=producer_session_id)
     response = client.complete(project_id, [conclude.fact_id], complete_description, worker_name, **kwargs)
-    if project.expansion and response.status_code in (409, 422):
+    if (project.expansion or project.result_contract) and response.status_code in (409, 422):
         return recover_expansion(client, project, worker_name, response.text)
     if response.status_code in (403, 409):
         LOG.info(

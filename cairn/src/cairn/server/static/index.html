@@ -308,9 +308,9 @@
               <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide" :class="projectStatusBadgeClass(item.status)" x-text="workflowStatusLabel(item.status)"></span>
             </div>
             <h3 class="font-semibold text-slate-700 break-words" x-text="item.title"></h3>
-            <p class="text-xs text-slate-500 mt-3" x-text="`${item.completed_stage_count} of ${item.stage_count} required goals completed`"></p>
-            <div class="h-1.5 rounded-full bg-slate-100 mt-2 overflow-hidden"><div class="h-full rounded-full bg-brand-500" :style="`width:${item.stage_count ? item.completed_stage_count / item.stage_count * 100 : 0}%`"></div></div>
-            <p class="text-xs text-slate-400 mt-2" x-text="item.status === 'completed' ? 'All stage goals met' : `${item.active_stage_count} active stage${item.active_stage_count === 1 ? '' : 's'}`"></p>
+            <p class="text-xs text-slate-500 mt-3" x-text="workflowSummaryProgress(item)"></p>
+            <div class="h-1.5 rounded-full bg-slate-100 mt-2 overflow-hidden"><div class="h-full rounded-full bg-brand-500" :style="`width:${workflowSummaryPercent(item)}%`"></div></div>
+            <p class="text-xs text-slate-400 mt-2" x-text="item.status === 'completed' ? 'All applicable stage goals met' : `${item.active_stage_count} active stage${item.active_stage_count === 1 ? '' : 's'}`"></p>
           </button>
           <div class="border-t border-slate-100 px-4 py-3 flex justify-end gap-2">
             <button x-show="item.status !== 'completed'" @click="changeWorkflowStatus(item.id, item.status)" :disabled="!!workflowActionId" class="px-3 py-1.5 rounded-lg border text-xs disabled:opacity-40" :class="item.status === 'active' ? 'border-amber-200 text-amber-700 hover:bg-amber-50' : 'border-teal-200 text-teal-700 hover:bg-teal-50'" x-text="workflowActionId === item.id ? 'Saving...' : item.status === 'active' ? 'Pause' : 'Resume'"></button>
@@ -533,7 +533,7 @@
       <p x-show="workflowTrashError" x-text="workflowTrashError" role="alert" class="text-sm text-rose-600 rounded-xl border border-rose-200 bg-rose-50 p-4"></p>
       <p x-show="workflowTrashLoading && !workflowTrash.length" class="text-sm text-slate-400 py-8 text-center">Loading Trash...</p>
       <p x-show="!workflowTrashLoading && !workflowTrashError && !workflowTrash.length" class="text-sm text-slate-400 py-12 text-center">Trash is empty.</p>
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"><template x-for="item in workflowTrash" :key="item.id"><article class="rounded-2xl border border-slate-200 bg-white overflow-hidden flex flex-col"><button @click="openWorkflow(item.id)" class="text-left p-5 flex-1 hover:bg-slate-50"><h2 class="font-semibold text-slate-700 break-words" x-text="item.title"></h2><p class="text-xs text-slate-400 mt-2" x-text="`${item.completed_stage_count} of ${item.stage_count} required goals completed`"></p><p class="text-[11px] text-slate-400 mt-2" x-text="`Moved to Trash ${formatDate(item.deleted_at)}`"></p></button><div class="border-t border-slate-100 px-4 py-3 flex justify-end"><button @click="restoreWorkflow(item.id)" :disabled="!!workflowActionId" class="px-3 py-1.5 rounded-lg border border-brand-200 text-xs text-brand-600 hover:bg-brand-50 disabled:opacity-40" x-text="workflowActionId === item.id ? 'Restoring...' : 'Restore'"></button></div></article></template></div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"><template x-for="item in workflowTrash" :key="item.id"><article class="rounded-2xl border border-slate-200 bg-white overflow-hidden flex flex-col"><button @click="openWorkflow(item.id)" class="text-left p-5 flex-1 hover:bg-slate-50"><h2 class="font-semibold text-slate-700 break-words" x-text="item.title"></h2><p class="text-xs text-slate-400 mt-2" x-text="workflowSummaryProgress(item)"></p><p class="text-[11px] text-slate-400 mt-2" x-text="`Moved to Trash ${formatDate(item.deleted_at)}`"></p></button><div class="border-t border-slate-100 px-4 py-3 flex justify-end"><button @click="restoreWorkflow(item.id)" :disabled="!!workflowActionId" class="px-3 py-1.5 rounded-lg border border-brand-200 text-xs text-brand-600 hover:bg-brand-50 disabled:opacity-40" x-text="workflowActionId === item.id ? 'Restoring...' : 'Restore'"></button></div></article></template></div>
     </div></main>
   </div>
 </template>
@@ -560,15 +560,39 @@
         <section x-show="workflow.workflow.deleted_at" class="rounded-xl border border-amber-200 bg-amber-50 p-4"><h2 class="text-sm font-semibold text-amber-800">This workflow is in Trash</h2><p class="text-xs text-amber-800 mt-1">Its graphs, files, and history remain available to read. Restore the workflow before changing or resuming it.</p><button @click="openWorkflowTrash()" class="text-xs font-medium text-brand-600 hover:text-brand-700 mt-2">Open Trash</button></section>
         <section class="bg-white border border-slate-200 rounded-2xl p-5">
           <div class="flex flex-wrap justify-between items-center gap-3">
-            <h2 class="text-sm font-semibold text-slate-700" x-text="`${workflowRequiredStages().filter(stage => stage.status === 'completed').length} of ${workflowRequiredTotal()} required goals completed`"></h2>
+            <h2 class="text-sm font-semibold text-slate-700" x-text="`${workflowRequiredStages().filter(stage => stage.status === 'completed').length} of ${workflowRequiredTotal()} applicable goals completed`"></h2>
             <span class="text-xs text-slate-500" x-text="workflow.workflow.status === 'completed' ? 'Workflow complete' : 'Each stage waits for all its prerequisites'"></span>
           </div>
           <div class="h-2 bg-slate-100 rounded-full mt-3 overflow-hidden"><div class="h-full bg-brand-500 rounded-full transition-all" :style="`width:${workflowProgress()}%`"></div></div>
+          <p x-show="workflowNotApplicableStages().length" class="text-xs text-slate-500 mt-3" x-text="`${workflowNotApplicableStages().length} stage${workflowNotApplicableStages().length === 1 ? '' : 's'} did not apply. Their conditions and reasons remain below.`"></p>
           <details x-show="workflow.workflow.origin" class="mt-4 text-sm text-slate-600"><summary class="cursor-pointer text-xs font-medium text-slate-500">Starting context</summary><p class="mt-2 whitespace-pre-wrap break-words" x-text="workflow.workflow.origin"></p></details>
           <p x-show="workflow.workflow.status === 'stopped'" class="text-xs text-amber-700 mt-3">Work is paused. Completed goals and findings are retained.</p>
         </section>
+        <template x-if="workflow.collections?.length">
+          <section class="rounded-2xl border border-slate-200 bg-white p-5">
+            <h2 class="text-sm font-semibold text-slate-700">Result collections</h2>
+            <p class="text-xs text-slate-500 mt-1">Recorded members and their outputs. Earlier agent context stays available in each stage.</p>
+            <template x-for="collection in workflow.collections" :key="`${workflow.workflow.id}:${collection.name}`">
+              <details class="mt-3 rounded-xl border border-slate-100 p-3">
+                <summary class="cursor-pointer text-xs text-slate-600 break-words" x-text="`${collection.name} · ${collection.members?.length || 0} members · ${collection.not_applicable_reason ? 'not applicable' : collection.ready ? 'ready' : collection.sealed ? 'waiting for members' : 'waiting for discovery'}`"></summary>
+                <p class="text-[11px] text-slate-400 mt-2" x-text="`Produced by ${workflowStageTitle(collection.emitter_stage_id)}`"></p>
+                <p x-show="collection.not_applicable_reason" class="text-xs text-slate-500 mt-2 break-words" x-text="collection.not_applicable_reason"></p>
+                <p x-show="collection.ready && !collection.members?.length" class="text-xs text-slate-500 mt-2">Discovery completed successfully and produced no members.</p>
+                <div class="mt-3 space-y-3"><template x-for="member in collection.members || []" :key="member.stage_id">
+                  <article class="border-l-2 border-slate-200 pl-3 min-w-0">
+                    <div class="flex flex-wrap items-center gap-2"><h3 class="text-xs font-medium text-slate-600 break-words" x-text="workflowStageTitle(member.stage_id)"></h3><span class="text-[10px] rounded-full px-2 py-1" :class="workflowStageStatusClass(member.status)" x-text="member.status.replaceAll('_', ' ')"></span></div>
+                    <p x-show="member.not_applicable_reason" class="text-xs text-slate-500 mt-2 break-words" x-text="member.not_applicable_reason"></p>
+                    <dl x-show="member.result" class="mt-2 space-y-1"><template x-for="(value, field) in member.result || {}" :key="field"><div class="text-xs break-all"><dt class="inline font-medium text-slate-500" x-text="`${field}: `"></dt><dd class="inline font-mono text-slate-600" x-text="JSON.stringify(value)"></dd></div></template></dl>
+                    <template x-for="artifact in member.artifacts || []" :key="artifact.id"><a :href="artifact.download_url" class="block text-xs text-brand-600 hover:text-brand-700 mt-2 break-all" x-text="artifact.label || artifact.path"></a></template>
+                    <button x-show="member.project_id" @click="openProject(member.project_id)" class="text-xs text-brand-600 hover:text-brand-700 mt-2">Open member findings</button>
+                  </article>
+                </template></div>
+              </details>
+            </template>
+          </section>
+        </template>
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <template x-for="(stage, index) in workflowDisplayStages()" :key="stage.id">
+        <template x-for="(stage, index) in workflowDisplayStages()" :key="`${workflow.workflow.id}:${stage.id}`">
           <article class="rounded-2xl border bg-white overflow-hidden" :class="[stage.status === 'active' ? 'border-brand-300 shadow-sm' : 'border-slate-200', stage.generated_by_stage_id ? '' : 'lg:col-span-2']">
             <div class="p-5">
               <div class="flex items-start gap-3">
@@ -581,6 +605,14 @@
                 <span class="px-2 py-1 rounded-full text-[10px] uppercase font-semibold shrink-0" :class="workflowStageStatusClass(stage.option_state || stage.status)" x-text="workflowStageStatusLabel(stage)"></span>
               </div>
               <p class="text-sm text-slate-600 whitespace-pre-wrap break-words mt-4" x-text="stage.goal"></p>
+              <details x-show="stage.result && Object.keys(stage.result).length" class="mt-3"><summary class="cursor-pointer text-xs text-slate-500">Required result fields</summary><pre class="mt-2 rounded-lg bg-slate-50 p-3 text-[11px] text-slate-600 whitespace-pre-wrap break-all" x-text="JSON.stringify(stage.result, null, 2)"></pre><p class="text-[11px] text-slate-400 mt-2">Types validate the claim's shape. Evidence and any configured review assess its accuracy.</p></details>
+              <template x-if="stage.status === 'not_applicable'">
+                <section class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <h3 class="text-xs font-semibold text-slate-600">Not applicable</h3>
+                  <p class="text-sm text-slate-600 whitespace-pre-wrap break-words mt-2" x-text="stage.not_applicable_reason"></p>
+                  <p class="text-[11px] text-slate-400 mt-2">This stage did not run. Its goal was not claimed as achieved.</p>
+                </section>
+              </template>
               <template x-if="stage.expansion">
                 <section class="mt-4 rounded-xl border border-brand-100 bg-brand-50/40 p-3">
                   <h3 class="text-xs font-semibold text-brand-700" x-text="stage.expansion.mode === 'one' ? 'Choose one option' : 'Parallel goal expansion'"></h3>
@@ -624,22 +656,28 @@
                   <p class="mt-2 text-xs text-amber-800">Open the stage graph to inspect what happened. Add a hint with corrections if needed, then resume the workflow.</p>
                 </section>
               </template>
+              <template x-if="stage.result_error">
+                <section role="alert" class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4"><h3 class="text-xs font-semibold text-amber-800">Result fields need attention</h3><p class="text-sm text-amber-900 whitespace-pre-wrap break-words mt-2" x-text="stage.result_error"></p><p class="text-xs text-amber-800 mt-2">Inspect the stage findings and field contract. Add a corrective hint before resuming the workflow.</p></section>
+              </template>
               <template x-if="stage.artifacts && stage.artifacts.length">
                 <section class="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3">
                   <h3 class="text-xs font-semibold text-slate-600">Required output files</h3>
                   <template x-for="artifact in stage.artifacts" :key="artifact.path"><div class="mt-2 text-xs break-words"><span class="text-slate-600" x-text="artifact.label || artifact.path"></span><span class="block font-mono text-[11px] text-slate-400" x-show="artifact.label" x-text="artifact.path"></span></div></template>
-                  <p x-show="stage.status !== 'completed' && !['pending', 'unavailable', 'skipped'].includes(stage.option_state)" class="text-[11px] text-slate-400 mt-2">The stage can finish once its required files have been collected.</p>
+                  <p x-show="!['completed', 'not_applicable'].includes(stage.status) && !['pending', 'unavailable', 'skipped'].includes(stage.option_state)" class="text-[11px] text-slate-400 mt-2">The stage can finish once its required files have been collected.</p>
                 </section>
               </template>
               <div class="flex flex-wrap items-center gap-1.5 mt-3 text-xs text-slate-400">
                 <span x-text="stage.depends_on.length ? 'Requires' : 'Starts from the workflow context'"></span>
-                <template x-for="dependency in stage.depends_on" :key="dependency"><span class="rounded-md bg-slate-50 border border-slate-100 px-2 py-1 text-slate-500" x-text="workflowStageTitle(dependency)"></span></template>
+                <template x-for="dependency in stage.depends_on" :key="JSON.stringify(dependency)"><span class="rounded-md bg-slate-50 border border-slate-100 px-2 py-1 text-slate-500 break-all" x-text="workflowDependencyLabel(dependency)"></span></template>
               </div>
               <p x-show="stage.status === 'blocked' && !['pending', 'skipped'].includes(stage.option_state) && workflowWaitingFor(stage).length" class="text-xs text-slate-500 mt-3" x-text="`Waiting for ${workflowWaitingFor(stage).join(', ')}`"></p>
               <template x-if="stage.completion">
                 <section class="bg-teal-50/60 border border-teal-100 rounded-xl p-4 mt-4">
                   <h3 class="text-xs font-semibold text-teal-700">Goal achieved</h3>
                   <p class="text-sm text-slate-700 whitespace-pre-wrap break-words mt-2" x-text="stage.completion.description"></p>
+                  <template x-if="stage.completion.result && Object.keys(stage.completion.result).length">
+                    <dl class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2"><template x-for="(value, field) in stage.completion.result" :key="field"><div class="rounded-lg bg-white/70 p-2 min-w-0"><dt class="text-[11px] font-medium text-slate-500 break-words" x-text="field"></dt><dd class="text-xs font-mono text-slate-700 break-all mt-1" x-text="JSON.stringify(value)"></dd></div></template></dl>
+                  </template>
                   <p class="text-[11px] text-slate-400 mt-2" x-text="`Recorded ${formatDate(stage.completion.completed_at)}`"></p>
                 </section>
               </template>
@@ -722,7 +760,7 @@
           </article>
         </template>
         </div>
-        <p class="text-xs text-slate-400 pb-4">A stage opens when its prerequisite goals are recorded as complete. Parallel stages share the workflow's files. The agent's completion explanation is shown above each finished stage.</p>
+        <p class="text-xs text-slate-400 pb-4">A stage opens when its prerequisite gates are satisfied. False conditions retain a not-applicable outcome. Parallel stages share the workflow's files. Accepted findings and output files remain available above.</p>
       </div>
     </main>
   </div>
@@ -1166,6 +1204,11 @@
       <p class="text-xs text-slate-500 mt-1">Describe the outcome and true requirements. Agents can adapt methods and preferences as circumstances change.</p>
     </header>
     <div class="p-5 space-y-5 overflow-y-auto flex-1">
+      <section x-show="workflowDefinitionMode === 'json'">
+        <label class="block text-xs font-medium text-slate-600">Workflow definition JSON<textarea x-model="workflowDefinitionText" rows="18" spellcheck="false" class="block w-full mt-2 px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono text-slate-700 bg-white"></textarea></label>
+        <p class="text-xs text-slate-500 mt-2">Use exact stage results, conditional dependencies, and collections. The server validates the complete definition before creating work. JSON/YAML files use the same contract through the CLI.</p>
+      </section>
+      <div x-show="workflowDefinitionMode === 'form'" class="space-y-5">
       <template x-for="(stage, index) in newWorkflow.stages" :key="stage.id">
         <section class="rounded-xl border border-slate-200 p-4 space-y-3 bg-slate-50/50">
           <div class="flex items-center justify-between"><span class="text-xs font-semibold text-slate-500" x-text="`Stage ${index + 1}`"></span><button @click="removeWorkflowStage(stage.id)" :disabled="newWorkflow.stages.length === 1" :aria-label="`Remove stage ${index + 1}`" class="text-xs text-slate-400 hover:text-rose-600 disabled:opacity-30">Remove</button></div>
@@ -1218,6 +1261,8 @@
           <p class="text-xs text-slate-500">Earlier work remains available when needed. Stages share a retained workspace for files and drafts.</p>
         </div>
       </details>
+      <button @click="editWorkflowDefinitionJson()" class="text-xs text-brand-600 hover:text-brand-700">Edit full JSON definition for conditions, result fields, or collections</button>
+      </div>
       <p x-show="workflowFormError" x-text="workflowFormError" role="alert" class="text-sm text-rose-600 whitespace-pre-wrap"></p>
     </div>
     <footer class="p-4 border-t border-slate-100 flex justify-end gap-2 shrink-0">
@@ -1333,6 +1378,12 @@
         </div>
       </div>
       <textarea x-model="completeForm.description" placeholder="Why is the goal met?" rows="2" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400 transition placeholder:text-slate-300"></textarea>
+      <template x-if="project?.result_contract && Object.keys(project.result_contract).length">
+        <section class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <label class="block text-xs font-medium text-slate-600">Required result values, JSON object<textarea x-model="completeForm.result_text" rows="4" spellcheck="false" placeholder='{"count": 0}' class="block w-full mt-2 px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono text-slate-700 bg-white"></textarea></label>
+          <details class="mt-2"><summary class="cursor-pointer text-[11px] text-slate-500">Result field contract</summary><pre class="mt-2 text-[11px] text-slate-500 whitespace-pre-wrap break-all" x-text="JSON.stringify(project.result_contract, null, 2)"></pre></details>
+        </section>
+      </template>
       <template x-if="project && project.expansion">
         <section class="rounded-xl border border-brand-100 bg-brand-50/40 p-3 space-y-2">
           <label class="block text-xs font-medium text-slate-600">Generated child goals, one per line<textarea x-model="completeForm.goals_text" :disabled="completeForm.no_child_goals" rows="3" placeholder="Investigate the first question&#10;Investigate the second question" class="block mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white disabled:opacity-40"></textarea></label>
@@ -1647,6 +1698,8 @@ function cairnApp() {
     isCreatingWorkflow: false,
     isChangingWorkflowStatus: false,
     workflowFormError: '',
+    workflowDefinitionMode: 'form',
+    workflowDefinitionText: '',
     workflowScrollPositions: {},
     runtime: null,
     showExecution: false,
@@ -1716,7 +1769,7 @@ function cairnApp() {
     newProject: { verification_enabled: false, title: '', origin: '', goal: '', bootstrap: true, hints: [{ content: '' }] },
     intentForm: { description: '' },
     concludeForm: { description: '', intentId: '' },
-    completeForm: { description: '', goals_text: '', no_child_goals: false, selected_index: '0', selection_reason: '' },
+    completeForm: { description: '', result_text: '', goals_text: '', no_child_goals: false, selected_index: '0', selection_reason: '' },
     hintForm: { content: '' },
     reopenForm: { projectId: '', projectTitle: '', description: '' },
     renameForm: { projectId: '', originalTitle: '', title: '' },
@@ -2556,7 +2609,20 @@ function cairnApp() {
     },
 
     workflowRequiredStages() {
-      return (this.workflow?.stages || []).filter(stage => !['pending', 'unavailable', 'skipped'].includes(stage.option_state));
+      return (this.workflow?.stages || []).filter(stage => stage.status !== 'not_applicable' && !['pending', 'unavailable', 'skipped'].includes(stage.option_state));
+    },
+
+    workflowNotApplicableStages() {
+      return (this.workflow?.stages || []).filter(stage => stage.status === 'not_applicable');
+    },
+
+    workflowSummaryProgress(item) {
+      const absent = item.not_applicable_stage_count || 0;
+      return `${item.completed_stage_count} of ${Math.max(0, item.stage_count - absent)} applicable goals completed${absent ? ` · ${absent} not applicable` : ''}`;
+    },
+
+    workflowSummaryPercent(item) {
+      return item.stage_count ? (item.completed_stage_count + (item.not_applicable_stage_count || 0)) / item.stage_count * 100 : item.status === 'completed' ? 100 : 0;
     },
 
     workflowRequiredTotal() {
@@ -2567,7 +2633,7 @@ function cairnApp() {
     workflowProgress() {
       const required = this.workflowRequiredStages();
       const total = this.workflowRequiredTotal();
-      return total ? required.filter(stage => stage.status === 'completed').length / total * 100 : 0;
+      return total ? required.filter(stage => stage.status === 'completed').length / total * 100 : this.workflow?.workflow.status === 'completed' ? 100 : 0;
     },
 
     rememberWorkflowScroll() {
@@ -2585,6 +2651,26 @@ function cairnApp() {
       return this.workflow?.stages.find(stage => stage.id === id)?.title || id;
     },
 
+    workflowDependencyStageId(dependency) {
+      if (typeof dependency === 'string') return dependency;
+      if (dependency.stage) return dependency.stage;
+      return this.workflow?.collections?.find(collection => collection.name === dependency.collection)?.emitter_stage_id;
+    },
+
+    workflowDependencyStageIds(dependency) {
+      if (dependency.collection) {
+        const collection = this.workflow?.collections?.find(item => item.name === dependency.collection);
+        return collection ? [collection.emitter_stage_id, ...(collection.members || []).map(member => member.stage_id)] : [];
+      }
+      return [this.workflowDependencyStageId(dependency)];
+    },
+
+    workflowDependencyLabel(dependency) {
+      if (typeof dependency === 'string') return this.workflowStageTitle(dependency);
+      const source = dependency.collection ? `Collection ${dependency.collection}` : this.workflowStageTitle(dependency.stage);
+      return `${source}${dependency.when ? ` if ${dependency.when}` : ''}${dependency.allow_not_applicable ? ' · absence allowed' : ''}`;
+    },
+
     workflowDisplayStages() {
       const stages = this.workflow?.stages || [];
       const remaining = [...stages];
@@ -2593,8 +2679,9 @@ function cairnApp() {
       // not become execution prerequisites or count as required goals.
       const choiceOptions = new Map(stages.filter(stage => stage.expansion?.mode === 'one')
         .map(stage => [stage.id,stages.filter(option => option.generated_by_stage_id === stage.id).map(option => option.id)]));
-      const displayDependencies = stage => stage.depends_on.flatMap(id =>
-        stage.generated_by_stage_id !== id && choiceOptions.has(id) ? [id,...choiceOptions.get(id)] : [id]);
+      const displayDependencies = stage => stage.depends_on.flatMap(dependency =>
+        this.workflowDependencyStageIds(dependency).flatMap(id =>
+          stage.generated_by_stage_id !== id && choiceOptions.has(id) ? [id,...choiceOptions.get(id)] : [id]));
       const ordered = [];
       const seen = new Set();
       while (remaining.length) {
@@ -2745,6 +2832,7 @@ function cairnApp() {
     },
 
     workflowStageStatusLabel(stage) {
+      if (stage.status === 'not_applicable') return 'not applicable';
       if (stage.pending_review_id) return stage.option_state === 'selected' ? 'selected · awaiting review' : 'awaiting review';
       if (stage.option_state === 'selected') return stage.status === 'stopped' || this.workflow?.workflow.status === 'stopped' ? 'selected · paused' : 'selected option';
       if (stage.option_state === 'pending') return 'unselected';
@@ -2783,6 +2871,22 @@ function cairnApp() {
       if (!this.workflow || this.workflow.workflow.deleted_at) return;
       const originals = this.workflow.stages.filter(stage => !stage.generated_by_stage_id);
       const ids = new Set(originals.map(stage => stage.id));
+      const exactStages = originals.map(stage => ({
+        id:stage.id,title:stage.title,goal:stage.goal,kind:stage.kind,layer:stage.layer,
+        depends_on:stage.depends_on.filter(dependency => typeof dependency !== 'string' || ids.has(dependency)),
+        bootstrap_enabled:stage.bootstrap_enabled,verification_enabled:stage.verification_enabled,
+        artifacts:stage.artifacts,...(stage.expansion ? {expansion:stage.expansion} : {}),
+        ...(stage.result && Object.keys(stage.result).length ? {result:stage.result} : {}),
+        ...(stage.emits ? {emits:stage.emits} : {}),
+      }));
+      if (exactStages.some(stage => stage.result || stage.emits || stage.depends_on.some(dependency => typeof dependency !== 'string'))) {
+        this.workflowDefinitionText = JSON.stringify({title:this.workflow.workflow.title,origin:this.workflow.workflow.origin || '',stages:exactStages}, null, 2);
+        this.workflowDefinitionMode = 'json';
+        this.workflowFormError = '';
+        this.showNewWorkflow = true;
+        return;
+      }
+      this.workflowDefinitionMode = 'form';
       this.newWorkflow = {
         title:this.workflow.workflow.title,
         origin:this.workflow.workflow.origin || '',
@@ -2800,17 +2904,24 @@ function cairnApp() {
     },
 
     workflowWaitingFor(stage) {
-      return stage.depends_on.filter(id => {
+      return stage.depends_on.filter(dependency => {
+        if (dependency.collection) {
+          const collection = this.workflow.collections?.find(item => item.name === dependency.collection);
+          return !collection?.ready && !(dependency.allow_not_applicable && collection?.not_applicable_reason);
+        }
+        const id = this.workflowDependencyStageId(dependency);
         const source = this.workflow.stages.find(item => item.id === id);
+        if (source?.status === 'not_applicable' && dependency.allow_not_applicable) return false;
         if (source?.status !== 'completed') return true;
         return source.expansion?.mode === 'one' && source.choice_satisfied !== true && stage.generated_by_stage_id !== id;
-      }).map(id => this.workflowStageTitle(id));
+      }).map(dependency => this.workflowDependencyLabel(dependency));
     },
 
     workflowStageStatusClass(status) {
       if (status === 'completed' || status === 'succeeded') return 'bg-teal-50 text-teal-700';
       if (status === 'active' || status === 'selected') return 'bg-brand-50 text-brand-600';
       if (status === 'stopped' || status === 'unavailable') return 'bg-amber-50 text-amber-700';
+      if (status === 'not_applicable') return 'bg-slate-100 text-slate-600';
       return 'bg-slate-100 text-slate-500';
     },
 
@@ -2820,6 +2931,10 @@ function cairnApp() {
     },
 
     workflowFormValid() {
+      if (this.workflowDefinitionMode === 'json') {
+        try { const body = JSON.parse(this.workflowDefinitionText); return !!body && !Array.isArray(body) && Array.isArray(body.stages) && body.stages.length > 0; }
+        catch { return false; }
+      }
       return this.newWorkflow.stages.length > 0
         && this.newWorkflow.stages.every(stage => (stage.goal.trim() || stage.artifacts.length > 0)
           && stage.artifacts.every(artifact => artifact.path.trim())
@@ -2877,12 +2992,8 @@ function cairnApp() {
       this.workflowFormError = '';
     },
 
-    async createWorkflow() {
-      if (!this.workflowFormValid() || this.isCreatingWorkflow) return;
-      this.workflowFormError = '';
-      this.isCreatingWorkflow = true;
-      try {
-        const data = await this.api('POST', '/workflows', {
+    workflowCreationBody() {
+      return {
           ...(this.newWorkflow.title.trim() ? {title:this.newWorkflow.title.trim()} : {}),
           ...(this.newWorkflow.origin.trim() ? {origin:this.newWorkflow.origin.trim()} : {}),
           stages: this.newWorkflow.stages.map(stage => ({
@@ -2891,8 +3002,25 @@ function cairnApp() {
             artifacts: stage.artifacts.map(artifact => ({path:artifact.path.trim(),label:artifact.label.trim() || null})),
             ...(stage.expansion_enabled ? {expansion:{max_goals:Number(stage.max_goals),mode:stage.expansion_mode || 'all'}} : {}),
           })),
-        });
+      };
+    },
+
+    editWorkflowDefinitionJson() {
+      this.workflowDefinitionText = JSON.stringify(this.workflowCreationBody(), null, 2);
+      this.workflowDefinitionMode = 'json';
+      this.workflowFormError = '';
+    },
+
+    async createWorkflow() {
+      if (!this.workflowFormValid() || this.isCreatingWorkflow) return;
+      this.workflowFormError = '';
+      this.isCreatingWorkflow = true;
+      try {
+        const body = this.workflowDefinitionMode === 'json' ? JSON.parse(this.workflowDefinitionText) : this.workflowCreationBody();
+        const data = await this.api('POST', '/workflows', body);
         this.showNewWorkflow = false;
+        this.workflowDefinitionMode = 'form';
+        this.workflowDefinitionText = '';
         this.newWorkflow = {title: '', origin: '', stages: [{id:'stage_1',title:'',goal:'',kind:'work',layer:'',depends_on:[],bootstrap_enabled:true,artifacts:[]}]};
         this.workflowStageSequence = 1;
         await Promise.all([this.loadProjects(), this.loadWorkflows()]);
@@ -4936,7 +5064,7 @@ function cairnApp() {
 
     openCompleteProject() {
       if (!this.canActOnSelectedFacts()) return;
-      this.completeForm = { description:'', goals_text:'', no_child_goals:false, selected_index:'0', selection_reason:'' };
+      this.completeForm = { description:'', result_text:'', goals_text:'', no_child_goals:false, selected_index:'0', selection_reason:'' };
       this.showCompleteModal = true;
     },
 
@@ -4949,6 +5077,10 @@ function cairnApp() {
 
     completionFormValid() {
       if (!this.selectedFacts.length || !this.completeForm.description.trim()) return false;
+      if (Object.keys(this.project?.result_contract || {}).length) {
+        try { const result = JSON.parse(this.completeForm.result_text); if (!result || typeof result !== 'object' || Array.isArray(result)) return false; }
+        catch { return false; }
+      }
       if (!this.project?.expansion) return true;
       const count = this.manualExpansionGoals().length;
       if (!this.completeForm.no_child_goals && !(count > 0 && count <= this.project.expansion.max_goals)) return false;
@@ -4967,7 +5099,7 @@ function cairnApp() {
       if (!this.completionFormValid()) return;
       try {
         const actor = this.actorName();
-        await this.api('POST', `/projects/${this.selectedProjectId}/complete`, { from: this.selectedFacts, description: this.completeForm.description.trim(), worker: actor, ...(this.project?.expansion ? {goals:this.manualExpansionGoals()} : {}), ...(this.project?.expansion?.mode === 'one' ? {selected_goal:this.completeForm.no_child_goals ? null : this.manualExpansionGoals()[Number(this.completeForm.selected_index)].id,selection_reason:this.completeForm.selection_reason.trim()} : {}) });
+        await this.api('POST', `/projects/${this.selectedProjectId}/complete`, { from: this.selectedFacts, description: this.completeForm.description.trim(), worker: actor, ...(Object.keys(this.project?.result_contract || {}).length ? {result:JSON.parse(this.completeForm.result_text)} : {}), ...(this.project?.expansion ? {goals:this.manualExpansionGoals()} : {}), ...(this.project?.expansion?.mode === 'one' ? {selected_goal:this.completeForm.no_child_goals ? null : this.manualExpansionGoals()[Number(this.completeForm.selected_index)].id,selection_reason:this.completeForm.selection_reason.trim()} : {}) });
         this.showCompleteModal = false;
         await this.loadProjects();
         await this.loadProject(this.selectedProjectId);
