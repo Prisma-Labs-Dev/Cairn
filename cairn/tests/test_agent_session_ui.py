@@ -223,3 +223,176 @@ def test_terminal_metadata_does_not_close_before_late_delivery_or_paged_events()
     assert.match(sources[1].url,/after=75$/);
     app.closeAgentSessions(); assert.equal(sources[1].closed,true);
     """)
+
+
+def test_readable_activity_keeps_live_text_and_tool_output_without_repeated_end_messages():
+    run_ui("""
+    const app=cairnApp();
+    const message=text=>({role:'assistant',content:[{type:'text',text}]});
+    const records=[
+      {sequence:1,event:{type:'message_start',message:message('')}},
+      {sequence:2,event:{type:'message_update',message:message('Reading the')}},
+      {sequence:3,event:{type:'message_update',message:message('Reading the source.')}},
+      {sequence:4,event:{type:'tool_execution_start',toolCallId:'read-1',toolName:'read',args:{path:'source.txt'}}},
+      {sequence:5,event:{type:'tool_execution_update',toolCallId:'read-1',toolName:'read',partialResult:{content:[{type:'text',text:'Partial source text'}]}}},
+    ];
+    app.mergeAgentEvents(records);
+    let rows=app.agentActivityRecords();
+    assert.equal(rows.length,2);
+    assert.equal(app.agentEventSummary(rows[0].event),'Reading the source.');
+    assert.equal(app.agentEventLabel(rows[0].event),'Assistant message fragment');
+    assert.equal(app.agentEventSummary(rows[1].event),'Partial source text');
+    assert.equal(app.agentEventLabel(rows[1].event),'Tool update · read');
+    app.mergeAgentEvents([
+      {sequence:6,event:{type:'tool_execution_end',toolCallId:'read-1',toolName:'read',isError:true,result:{content:[{type:'text',text:'Read failed'}]}}},
+      {sequence:7,event:{type:'message_end',message:{role:'toolResult',content:[{type:'text',text:'Read failed'}]}}},
+      {sequence:8,event:{type:'message_start',message:message('')}},
+      {sequence:9,event:{type:'message_update',assistantMessageEvent:{type:'text_end',partial:message('<script>untrusted text</script>')}}},
+      {sequence:10,event:{type:'message_end',message:message('<script>untrusted text</script>')}},
+      {sequence:11,event:{type:'turn_end',message:message('<script>untrusted text</script>')}},
+      {sequence:12,event:{type:'agent_end'}},
+    ]);
+    rows=app.agentActivityRecords();
+    assert.equal(rows.length,4);
+    assert.equal(app.agentEventLabel(rows[1].event),'Tool failed · read');
+    assert.equal(app.agentEventSummary(rows[1].event),'Read failed');
+    assert.equal(app.agentEventSummary(rows[2].event),'<script>untrusted text</script>');
+    assert.equal(rows[2].firstSequence,9);
+    assert.equal(rows[2].sequence,10);
+    assert.match(app.agentActivityWindowLabel(),/Earlier or later messages may be outside/);
+    const original=JSON.stringify(app.agentSessions.events);
+    app.agentSessions.rawEvents=true;
+    assert.equal(JSON.stringify(app.agentActivityRecords()),original,'Raw events retain their original objects and ordering');
+    assert.match(app.agentActivityWindowLabel(),/Raw events shown individually/);
+    """)
+
+
+def test_backpaging_can_return_to_latest_without_losing_live_cursor():
+    run_ui("""
+    const app=cairnApp(); const paths=[];
+    app.agentSessions.open=true;
+    app.agentSessions.selected={id:'one',events_captured:240};
+    app.agentSessions.events=Array.from({length:50},(_,i)=>({sequence:191+i,event:{type:'agent_start'}}));
+    app.agentSessions.nextAfter=240;
+    app.api=async(method,path)=>{
+      paths.push(path);
+      const after=Number(new URL('http://local'+path).searchParams.get('after'));
+      return {items:Array.from({length:50},(_,i)=>({sequence:after+i+1,event:{type:'agent_start'}})),next_after:after+50};
+    };
+    app.connectAgentSessionStream=()=>{};
+    await app.loadEarlierAgentEvents();
+    await app.loadEarlierAgentEvents();
+    assert.equal(app.agentSessions.events[0].sequence,91);
+    assert.equal(app.agentSessions.events.at(-1).sequence,190);
+    assert.equal(app.agentSessions.nextAfter,240);
+    assert.match(app.agentActivityWindowLabel(),/#91–190/);
+    await app.selectAgentSession(app.agentSessions.selected);
+    assert.equal(app.agentSessions.events[0].sequence,191);
+    assert.equal(app.agentSessions.events.at(-1).sequence,240);
+    assert.equal(app.agentSessions.nextAfter,240);
+    assert.match(paths.at(-1),/after=190&limit=50/);
+    """)
+
+
+def test_usage_gap_opens_exact_invocation_and_ignores_a_replaced_dialog():
+    run_ui("""
+    const app=cairnApp(); let selected;
+    app.selectAgentSession=async session=>{selected=session.id;};
+    app.api=async(method,path)=>path.includes('?')?{items:[],total:0}:{id:'missing-record',project_id:'project'};
+    await app.openUsageSession({project_id:'project',invocation_id:'missing-record'});
+    assert.equal(selected,'missing-record');
+    assert.deepEqual(app.agentSessions.scope,{project_id:'project'});
+    assert.match(app.agentSessions.title,/usage record missing/);
+    let resolveList; selected=null;
+    app.api=()=>new Promise(resolve=>resolveList=resolve);
+    const opening=app.openUsageSession({project_id:'old',invocation_id:'old-session'});
+    app.closeAgentSessions();
+    resolveList({items:[],total:0});
+    await opening;
+    assert.equal(selected,null);
+    assert.equal(app.agentSessions.open,false);
+    assert.equal(app.workflowStatusLabel('stopped'),'stopped');
+    const oldNow=Date.now; Date.now=()=>Date.parse('2026-10-28T12:00:00Z');
+    assert.match(app.usageReporterAge({last_seen:'2026-10-27T12:00:00Z'}),/24 hours ago; current queue state unconfirmed/);
+    assert.equal(app.usageReporterAge({last_seen:null}),'Report age unavailable');
+    Date.now=oldNow;
+    """)
+
+
+def test_phone_stacking_preserves_saved_desktop_panel_width():
+    run_ui("""
+    const app=cairnApp(); let width=390;
+    global.document={getElementById:()=>({getBoundingClientRect:()=>({width})})};
+    global.window={innerWidth:390};
+    assert.equal(app.clampPanelWidth(420),420,'Phone CSS uses full width without overwriting the desktop preference');
+    width=1280;
+    assert.equal(app.clampPanelWidth(420),420);
+    assert.equal(app.clampPanelWidth(2000),1020,'Desktop drag still leaves room for graph');
+    assert.equal(app.clampPanelWidth(100),260);
+    """)
+
+
+def test_capped_pi_message_exposes_recorded_error_without_inventing_budget_type():
+    run_ui("""
+    const app=cairnApp();
+    const event={type:'message_end',message:{role:'assistant',content:[],stopReason:'error',errorMessage:'benchmark provider-request budget is stopped'}};
+    app.mergeAgentEvents([{sequence:95,event},{sequence:96,event:{type:'turn_end',message:event.message}},{sequence:97,event:{type:'agent_end'}}]);
+    const rows=app.agentActivityRecords();
+    assert.equal(rows.length,2);
+    assert.equal(app.agentEventLabel(rows[0].event),'Assistant error');
+    assert.equal(app.agentEventSummary(rows[0].event),'benchmark provider-request budget is stopped');
+    """)
+
+
+def test_missing_report_card_counts_disjoint_missing_rows_and_unreported_records():
+    run_ui("""
+    const app=cairnApp();
+    app.usageSummary={totals:{unreported_attempts:0},session_coverage:{missing_usage_attempts:1}};
+    assert.equal(app.usageMissingReportCount(),1);
+    app.usageSummary={totals:{unreported_attempts:1},session_coverage:{missing_usage_attempts:0}};
+    assert.equal(app.usageMissingReportCount(),1,'A late usage row replaces the missing-row gap without double counting');
+    app.usageSummary={totals:{unreported_attempts:2},session_coverage:{missing_usage_attempts:3}};
+    assert.equal(app.usageMissingReportCount(),5);
+    app.usageSummary={totals:{unreported_attempts:0}};
+    assert.equal(app.usageMissingReportCount(),0);
+    """)
+
+
+def test_initial_graph_fit_cannot_animate_back_to_pre_phone_layout_dimensions():
+    run_ui("""
+    const app=cairnApp(); let options;
+    global.document={getElementById:()=>({})};
+    global.cytoscape=opts=>{options=opts;return {on:()=>{}};};
+    app.buildElements=()=>({nodes:[],edges:[]}); app.graphStyles=()=>[];
+    app.pulseActive=()=>{}; app.setupAutoFit=()=>{};
+    app.initGraph();
+    assert.equal(options.layout.animate,false,'Initial layout cannot leave a stale fit animation running after final responsive resize');
+    assert.equal(app.layoutOpts().animate,true,'Explicit layout changes retain their animation');
+    """)
+
+
+def test_resize_fit_preserves_camera_for_same_size_and_cannot_reach_replacement_graph():
+    run_ui("""
+    const app=cairnApp(); const timers=[]; const observers=[];
+    let size={width:390,height:373};
+    const container={getBoundingClientRect:()=>size};
+    global.document={getElementById:()=>container};
+    global.ResizeObserver=class {constructor(fn){this.update=fn;observers.push(this);}observe(){}disconnect(){this.disconnected=true;}};
+    global.setTimeout=fn=>{timers.push(fn);return timers.length;}; global.clearTimeout=()=>{};
+    let firstFits=0,secondFits=0;
+    const first={resize:()=>{},fit:()=>firstFits++};
+    const second={resize:()=>{},fit:()=>secondFits++};
+    app.clampPanelWidth=width=>width;
+    app.cy=first; app.setupAutoFit(); observers[0].update(); timers[0]();
+    assert.equal(firstFits,1);
+    // The user can now pan/zoom. Repeated same-size notifications must not fit.
+    observers[0].update(); assert.equal(timers.length,1);
+    size={width:390,height:410}; observers[0].update();
+    app.teardownAutoFit(); app.cy=second;
+    timers[1]();
+    assert.equal(secondFits,0,'A pending fit from the closed graph cannot change its replacement');
+    assert.equal(firstFits,1);
+    assert.equal(observers[0].disconnected,true);
+    app.setupAutoFit(); observers[1].update(); timers[2]();
+    assert.equal(secondFits,1,'The replacement graph gets its own fit at its final dimensions');
+    """)

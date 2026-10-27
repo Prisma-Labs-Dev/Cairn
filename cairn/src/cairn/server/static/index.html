@@ -17,6 +17,18 @@
 <style>
   [x-cloak] { display: none !important; }
   #cy { width: 100%; height: 100%; }
+  @media (max-width: 767px) {
+    #graphHeader { flex-wrap: wrap; gap: 8px; }
+    #graphHeader .title-action-trigger { flex: 1 0 calc(100% - 48px); }
+    #graphHeader .graph-header-spacer { display: none; }
+    #graphHeader .graph-counts { order: 2; }
+    #graphHeader .graph-preferences { order: 2; margin-left: auto; }
+    #graphHeader .graph-actions { order: 3; width: 100%; flex-wrap: wrap; }
+    #graphLayout { flex-direction: column; min-height: 0; }
+    #graphLayout .graph-canvas { min-height: 220px; }
+    #graphLayout .graph-panel-resize { display: none; }
+    #graphLayout .graph-side-panel { width: 100% !important; min-width: 0 !important; flex-basis: 42% !important; border-left: 0; border-top: 1px solid #e2e8f0; }
+  }
   ::-webkit-scrollbar { width: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
@@ -239,19 +251,19 @@
     </div>
     <div class="flex-1 order-2 sm:order-none"></div>
     <div class="hidden md:flex items-center gap-3 text-[11px] text-slate-400">
-      <span class="inline-flex items-center gap-1.5 shrink-0" title="All projects">
-        <span class="font-medium uppercase tracking-[0.12em] text-slate-400">All</span>
+      <span class="inline-flex items-center gap-1.5 shrink-0" title="Standalone projects">
+        <span class="font-medium uppercase tracking-[0.12em] text-slate-400">Standalone</span>
         <span class="font-semibold text-slate-600 tabular-nums" x-text="standaloneProjects().length"></span>
       </span>
-      <span class="inline-flex items-center gap-1.5 shrink-0" title="Active projects">
+      <span class="inline-flex items-center gap-1.5 shrink-0" title="Active standalone projects">
         <span class="h-1.5 w-1.5 rounded-full bg-teal-500"></span>
         <span class="font-semibold text-teal-700 tabular-nums" x-text="countProjectsByStatus('active')"></span>
       </span>
-      <span class="inline-flex items-center gap-1.5 shrink-0" title="Stopped projects">
+      <span class="inline-flex items-center gap-1.5 shrink-0" title="Stopped standalone projects">
         <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
         <span class="font-semibold text-amber-700 tabular-nums" x-text="countProjectsByStatus('stopped')"></span>
       </span>
-      <span class="inline-flex items-center gap-1.5 shrink-0" title="Completed projects">
+      <span class="inline-flex items-center gap-1.5 shrink-0" title="Completed standalone projects">
         <span class="h-1.5 w-1.5 rounded-full bg-slate-400"></span>
         <span class="font-semibold text-slate-600 tabular-nums" x-text="countProjectsByStatus('completed')"></span>
       </span>
@@ -487,17 +499,26 @@
         <template x-if="usageSummary">
           <div class="space-y-5">
             <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <section class="rounded-xl border border-slate-200 bg-white p-4"><h2 class="text-xs text-slate-500">Invocations</h2><p class="text-xl font-semibold text-slate-700 mt-2" x-text="usageNumber(usageSummary.totals.attempts)"></p><p class="text-[11px] text-slate-400 mt-1" x-text="`${usageNumber(usageSummary.totals.reported_attempts)} fully reported`"></p></section>
+              <section class="rounded-xl border border-slate-200 bg-white p-4"><h2 class="text-xs text-slate-500">Usage records</h2><p class="text-xl font-semibold text-slate-700 mt-2" x-text="usageNumber(usageSummary.totals.attempts)"></p><p class="text-[11px] text-slate-400 mt-1" x-text="`${usageNumber(usageSummary.totals.reported_attempts)} fully reported`"></p></section>
               <section class="rounded-xl border border-slate-200 bg-white p-4"><h2 class="text-xs text-slate-500">Reported token subtotal</h2><p class="text-xl font-semibold text-slate-700 mt-2" x-text="usageNumber(usageReportedTotal(usageSummary.totals))"></p><p class="text-[11px] text-slate-400 mt-1">Input plus output, where reported</p></section>
               <section class="rounded-xl border border-slate-200 bg-white p-4"><h2 class="text-xs text-slate-500">Cached input</h2><p class="text-xl font-semibold text-slate-700 mt-2" x-text="usageNumber(usageSummary.totals.cached_input_tokens)"></p><p class="text-[11px] text-slate-400 mt-1" x-text="usageMetricCoverage(usageSummary.totals, 'cached_input_tokens')"></p></section>
-              <section class="rounded-xl border border-slate-200 bg-white p-4"><h2 class="text-xs text-slate-500">No token report</h2><p class="text-xl font-semibold text-slate-700 mt-2" x-text="usageNumber(usageSummary.totals.unreported_attempts)"></p><p class="text-[11px] text-slate-400 mt-1" x-text="`${usageNumber(usageSummary.totals.partial_attempts)} more partially reported`"></p></section>
+              <section class="rounded-xl border border-slate-200 bg-white p-4"><h2 class="text-xs text-slate-500">Missing token reports</h2><p class="text-xl font-semibold text-slate-700 mt-2" x-text="usageNumber(usageMissingReportCount())"></p><p class="text-[11px] text-slate-400 mt-1" x-text="`${usageNumber(usageSummary.totals.partial_attempts)} more partially reported`"></p></section>
             </div>
             <section x-show="usageSummary.totals.partial_attempts || usageSummary.totals.unreported_attempts" class="rounded-xl border border-amber-200 bg-amber-50 p-4"><h2 class="text-xs font-semibold text-amber-800">Incomplete reporting</h2><p class="text-xs text-amber-800 mt-1">Token totals include only reported values. Unavailable metrics are not treated as zero. A configured model name does not confirm which model answered.</p></section>
+            <template x-if="usageSummary.session_coverage?.missing_usage_attempts">
+              <section class="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                <h2 class="text-xs font-semibold text-amber-800" x-text="`${usageNumber(usageSummary.session_coverage.missing_usage_attempts)} known Pi invocation${usageSummary.session_coverage.missing_usage_attempts === 1 ? '' : 's'} missing usage records`"></h2>
+                <p class="text-[11px] text-amber-700 mt-2" x-text="`${usageNumber(usageSummary.session_coverage.known_pi_invocations)} known Pi invocations in this window.`"></p>
+                <p class="text-xs text-amber-800 mt-2">These captured invocations have no matching usage record in the selected window. Their tokens are unknown and are excluded from the reported subtotal.</p>
+                <div class="space-y-2 mt-3"><template x-for="item in usageSummary.session_coverage.missing_usage_items" :key="item.invocation_id"><button @click="openUsageSession(item)" class="block text-left text-xs text-brand-700 hover:underline break-words" x-text="`${item.project_id} · ${item.invocation_id} · ${formatDate(item.started_at)} · Open session`"></button></template></div>
+                <p x-show="usageSummary.session_coverage.has_more" class="text-[11px] text-amber-700 mt-2" x-text="`Showing the latest ${usageSummary.session_coverage.limit} affected invocations. Narrow the filters for others.`"></p>
+              </section>
+            </template>
             <section class="rounded-xl border border-slate-200 bg-white p-4">
               <h2 class="text-sm font-semibold text-slate-700">Reporting queue</h2>
               <p class="text-[11px] text-slate-400 mt-1">Latest reporting snapshots, independent of the date and project filters.</p>
               <p x-show="!usageSummary.reporting?.reporters?.length" class="text-xs text-slate-500 mt-3">Reporting health is unavailable. No reporter snapshot has arrived.</p>
-              <template x-if="usageSummary.reporting?.reporters?.length"><div><dl class="grid grid-cols-3 gap-3 mt-4"><div><dt class="text-[11px] text-slate-400">Awaiting transfer</dt><dd class="text-lg font-semibold text-slate-700 mt-1" x-text="usageNumber(usageReporterCount('pending_attempts'))"></dd></div><div><dt class="text-[11px] text-slate-400">Still running</dt><dd class="text-lg font-semibold text-slate-700 mt-1" x-text="usageNumber(usageReporterCount('running_attempts'))"></dd></div><div><dt class="text-[11px] text-slate-400">Rejected records</dt><dd class="text-lg font-semibold mt-1" :class="usageReporterCount('rejected_attempts') ? 'text-amber-700' : 'text-slate-700'" x-text="usageNumber(usageReporterCount('rejected_attempts'))"></dd></div></dl><div class="mt-3 space-y-1"><template x-for="(reporter, index) in usageSummary.reporting.reporters" :key="reporter.reporter_id"><p class="text-[11px] text-slate-400" x-text="`Reporter ${index + 1}: last seen ${formatDate(reporter.last_seen)}`"></p></template></div><p class="text-[11px] text-slate-500 mt-2">These are last reported queue counts. An offline reporter may have additional records that have not arrived.</p></div></template>
+              <template x-if="usageSummary.reporting?.reporters?.length"><div><dl class="grid grid-cols-3 gap-3 mt-4"><div><dt class="text-[11px] text-slate-400">Awaiting transfer</dt><dd class="text-lg font-semibold text-slate-700 mt-1" x-text="usageNumber(usageReporterCount('pending_attempts'))"></dd></div><div><dt class="text-[11px] text-slate-400">Last reported active</dt><dd class="text-lg font-semibold text-slate-700 mt-1" x-text="usageNumber(usageReporterCount('running_attempts'))"></dd></div><div><dt class="text-[11px] text-slate-400">Rejected records</dt><dd class="text-lg font-semibold mt-1" :class="usageReporterCount('rejected_attempts') ? 'text-amber-700' : 'text-slate-700'" x-text="usageNumber(usageReporterCount('rejected_attempts'))"></dd></div></dl><div class="mt-3 space-y-1"><template x-for="(reporter, index) in usageSummary.reporting.reporters" :key="reporter.reporter_id"><p class="text-[11px] text-slate-400" x-text="`Reporter ${index + 1}: ${formatDate(reporter.last_seen)} · ${usageReporterAge(reporter)}`"></p></template></div><p class="text-[11px] text-slate-500 mt-2">These are last reported queue counts. An offline reporter may have additional records that have not arrived.</p></div></template>
             </section>
             <section class="rounded-2xl border border-slate-200 bg-white overflow-hidden">
               <div class="p-4 border-b border-slate-100"><h2 class="text-sm font-semibold text-slate-700">Usage by model</h2><p class="text-[11px] text-slate-400 mt-1">Cached input is cache reads. Uncached input includes fresh input and cache writes; the write column is a breakdown, not extra input.</p></div>
@@ -566,7 +587,7 @@
           <div class="h-2 bg-slate-100 rounded-full mt-3 overflow-hidden"><div class="h-full bg-brand-500 rounded-full transition-all" :style="`width:${workflowProgress()}%`"></div></div>
           <p x-show="workflowNotApplicableStages().length" class="text-xs text-slate-500 mt-3" x-text="`${workflowNotApplicableStages().length} stage${workflowNotApplicableStages().length === 1 ? '' : 's'} did not apply. Their conditions and reasons remain below.`"></p>
           <details x-show="workflow.workflow.origin" class="mt-4 text-sm text-slate-600"><summary class="cursor-pointer text-xs font-medium text-slate-500">Starting context</summary><p class="mt-2 whitespace-pre-wrap break-words" x-text="workflow.workflow.origin"></p></details>
-          <p x-show="workflow.workflow.status === 'stopped'" class="text-xs text-amber-700 mt-3">Work is paused. Completed goals and findings are retained.</p>
+          <p x-show="workflow.workflow.status === 'stopped'" class="text-xs text-amber-700 mt-3">Work has stopped. Completed goals and findings are retained.</p>
         </section>
         <template x-if="workflow.collections?.length">
           <section class="rounded-2xl border border-slate-200 bg-white p-5">
@@ -673,7 +694,8 @@
               <p x-show="stage.status === 'blocked' && !['pending', 'skipped'].includes(stage.option_state) && workflowWaitingFor(stage).length" class="text-xs text-slate-500 mt-3" x-text="`Waiting for ${workflowWaitingFor(stage).join(', ')}`"></p>
               <template x-if="stage.completion">
                 <section class="bg-teal-50/60 border border-teal-100 rounded-xl p-4 mt-4">
-                  <h3 class="text-xs font-semibold text-teal-700">Goal achieved</h3>
+                  <h3 class="text-xs font-semibold text-teal-700">Completion recorded</h3>
+                  <p x-show="!stage.verification_enabled" class="text-[11px] text-slate-500 mt-2">Reported by the worker. Independent verification was off for this stage.</p>
                   <p class="text-sm text-slate-700 whitespace-pre-wrap break-words mt-2" x-text="stage.completion.description"></p>
                   <template x-if="stage.completion.result && Object.keys(stage.completion.result).length">
                     <dl class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2"><template x-for="(value, field) in stage.completion.result" :key="field"><div class="rounded-lg bg-white/70 p-2 min-w-0"><dt class="text-[11px] font-medium text-slate-500 break-words" x-text="field"></dt><dd class="text-xs font-mono text-slate-700 break-all mt-1" x-text="JSON.stringify(value)"></dd></div></template></dl>
@@ -769,7 +791,7 @@
 <!-- ═══════════ GRAPH VIEW ═══════════ -->
 <template x-if="view === 'graph'">
 <div class="flex-1 flex flex-col overflow-hidden">
-  <header class="bg-white/80 backdrop-blur border-b border-slate-200/60 px-4 py-2.5 flex items-center gap-3 shrink-0 z-20">
+  <header id="graphHeader" class="bg-white/80 backdrop-blur border-b border-slate-200/60 px-4 py-2.5 flex items-center gap-3 shrink-0 z-20">
     <button @click="backFromProject()" :aria-label="project.project.workflow_id ? 'Back to workflow' : 'Back to all projects'" class="p-1.5 rounded-lg hover:bg-slate-100 transition text-slate-400 hover:text-slate-600">
       <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7"/></svg>
     </button>
@@ -786,12 +808,12 @@
         :class="projectStatusBadgeClass(project.project.status)"
         x-text="project.project.pending_review_id ? 'awaiting review' : project.project.status"></span>
     </div>
-    <div class="flex-1"></div>
-    <div class="flex items-center gap-4 text-xs text-slate-400">
+    <div class="graph-header-spacer flex-1"></div>
+    <div class="graph-counts flex items-center gap-4 text-xs text-slate-400">
       <span x-text="`${project.facts.length} facts`"></span>
       <span x-text="`${project.intents.length} intents`"></span>
     </div>
-    <div class="flex items-center gap-1.5">
+    <div class="graph-actions flex items-center gap-1.5">
       <template x-if="!replay.active">
         <button @click="startProjectReplay()" class="px-2.5 py-1 rounded-lg border border-violet-200 text-xs text-violet-600 hover:bg-violet-50 transition flex items-center gap-1.5">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7V5Z"/><path d="M4 5v14"/></svg>
@@ -847,7 +869,7 @@
         Delete
       </button>
     </div>
-    <div class="flex items-center gap-1.5 ml-1">
+    <div class="graph-preferences flex items-center gap-1.5 ml-1">
       <button @click="showLocalPrefs = true" class="h-7 max-w-40 px-2.5 rounded-lg border border-slate-200 text-xs text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition inline-flex items-center shrink-0">
         <span class="truncate block" x-text="actorName()"></span>
       </button>
@@ -857,9 +879,10 @@
     </div>
   </header>
 
+  <p x-show="project.project.status === 'completed' && !project.project.verification_enabled" class="shrink-0 px-4 py-2 text-[11px] text-slate-500 border-b border-slate-200 bg-white">Completion reported by the worker. Independent verification was off.</p>
   <div class="flex-1 flex overflow-hidden" id="graphLayout">
     <!-- Graph -->
-    <div class="flex-1 relative min-w-0">
+    <div class="graph-canvas flex-1 relative min-w-0">
       <div class="absolute top-3 left-3 z-10 flex items-center gap-1.5">
         <button @click="fitGraph()" class="h-7 w-7 bg-white/90 backdrop-blur rounded-lg shadow-sm border border-slate-200/60 text-slate-500 hover:text-slate-700 hover:bg-white transition inline-flex items-center justify-center" title="Fit graph" aria-label="Fit graph">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
@@ -944,12 +967,12 @@
       <div id="cy" class="relative z-0 flex-1 h-full"></div>
     </div>
 
-    <div @pointerdown.prevent="startPanelResize($event)" class="w-2 shrink-0 cursor-col-resize group flex items-stretch justify-center touch-none relative z-20">
+    <div @pointerdown.prevent="startPanelResize($event)" class="graph-panel-resize w-2 shrink-0 cursor-col-resize group flex items-stretch justify-center touch-none relative z-20">
       <div class="w-px bg-slate-200/70 transition group-hover:bg-brand-300" :class="{ 'bg-brand-400': isResizingPanel }"></div>
     </div>
 
     <!-- Side panel -->
-    <div class="border-l border-slate-200/60 bg-white flex flex-col overflow-hidden shrink-0 relative z-20" :style="{ width: sidePanelWidth + 'px', minWidth: sidePanelWidth + 'px', flexBasis: sidePanelWidth + 'px' }">
+    <div class="graph-side-panel border-l border-slate-200/60 bg-white flex flex-col overflow-hidden shrink-0 relative z-20" :style="{ width: sidePanelWidth + 'px', minWidth: sidePanelWidth + 'px', flexBasis: sidePanelWidth + 'px' }">
       <div class="flex border-b border-slate-100 shrink-0">
         <button @click="sideTab = 'detail'" class="flex-1 px-3 py-2.5 text-xs font-medium transition"
           :class="sideTab === 'detail' ? 'text-brand-600 border-b-2 border-brand-500' : 'text-slate-400 hover:text-slate-600'">Detail</button>
@@ -1604,7 +1627,8 @@
       <button @click="closeAgentSessions()" aria-label="Close agent sessions" class="px-2.5 py-1.5 text-xs text-slate-500 hover:bg-slate-100 rounded-lg">Close</button>
     </header>
     <div class="flex-1 min-h-0 flex flex-col md:flex-row">
-      <aside class="md:w-80 shrink-0 border-b md:border-b-0 md:border-r border-slate-200 overflow-y-auto p-3 space-y-2 max-h-60 md:max-h-none">
+      <button x-show="agentSessions.selected" @click="agentSessions.showList = !agentSessions.showList" class="md:hidden shrink-0 text-left px-4 py-2 border-b border-slate-200 text-xs text-brand-600" x-text="agentSessions.showList ? 'Hide invocation list' : 'Choose another invocation'"></button>
+      <aside :class="agentSessions.selected && !agentSessions.showList ? 'hidden md:block' : ''" class="md:w-80 shrink-0 border-b md:border-b-0 md:border-r border-slate-200 overflow-y-auto p-3 space-y-2 max-h-60 md:max-h-none">
         <p x-show="agentSessions.error" role="alert" class="text-xs text-rose-600 p-2 break-words" x-text="agentSessions.error"></p>
         <p x-show="agentSessions.loading && !agentSessions.items.length" class="text-xs text-slate-400 p-2">Loading session records...</p>
         <p x-show="!agentSessions.loading && !agentSessions.items.length && !agentSessions.error" class="text-xs text-slate-500 p-2">No captured Pi invocations in this scope. Earlier work may predate session capture.</p>
@@ -1630,7 +1654,8 @@
               <p class="text-[11px] text-slate-400 mt-2" x-text="agentSessions.selected.delivery_status === 'delivered' ? 'Captured transcript and event bytes acknowledged by Cairn' : 'Captured bytes may still be uploading or awaiting replay'"></p>
               <p class="text-[11px] text-slate-400 mt-1" x-text="`${formatArtifactSize(agentSessions.selected.bytes_captured || 0)} transcript · ${agentSessions.selected.events_captured || 0} captured activity events`"></p>
               <p x-show="agentSessions.selected.source_error" class="text-xs text-amber-700 mt-2 whitespace-pre-wrap break-words" x-text="agentSessions.selected.source_error"></p>
-              <dl class="text-[11px] mt-3 space-y-1.5 text-slate-500">
+              <details class="mt-3"><summary class="cursor-pointer text-xs text-slate-500">Graph links and session IDs</summary>
+              <dl class="text-[11px] mt-3 space-y-1.5 text-slate-500 [&_dd]:min-w-0 [&_dd]:flex-1">
                 <div class="flex gap-2"><dt class="text-slate-400 shrink-0">Project</dt><dd><button @click="openAgentSessionProject(agentSessions.selected.project_id)" class="text-brand-600 hover:text-brand-700 break-all" x-text="agentSessions.selected.project_id"></button></dd></div>
                 <div x-show="agentSessions.selected.workflow_id" class="flex gap-2"><dt class="text-slate-400 shrink-0">Workflow / stage</dt><dd><button @click="openAgentSessionWorkflow(agentSessions.selected.workflow_id)" class="text-brand-600 hover:text-brand-700 break-all" x-text="`${agentSessions.selected.workflow_id || ''} / ${agentSessions.selected.stage_id || ''}`"></button></dd></div>
                 <div x-show="agentSessions.selected.intent_id" class="flex gap-2"><dt class="text-slate-400 shrink-0">Intent / edge</dt><dd><button @click="openAgentSessionGraphRecord(agentSessions.selected.project_id,'intent',agentSessions.selected.intent_id)" class="font-mono text-brand-600 hover:text-brand-700 break-all" x-text="agentSessions.selected.intent_id"></button></dd></div>
@@ -1640,18 +1665,23 @@
                 <div class="flex gap-2"><dt class="text-slate-400 shrink-0">Cairn conversation</dt><dd class="font-mono break-all" x-text="agentSessions.selected.conversation_id"></dd></div>
                 <div class="flex gap-2"><dt class="text-slate-400 shrink-0">Pi session ID</dt><dd class="font-mono break-all" x-text="agentSessionPiId(agentSessions.selected)"></dd></div>
                 <div class="flex gap-2"><dt class="text-slate-400 shrink-0">Invocation / usage ID</dt><dd class="font-mono break-all" x-text="agentSessions.selected.id"></dd></div>
-              </dl>
+              </dl></details>
             </section>
             <section class="rounded-xl border border-slate-200 bg-white p-4">
               <div class="flex flex-wrap justify-between items-center gap-2"><h3 class="text-xs font-semibold text-slate-700">Pi activity</h3><span class="text-[10px] text-slate-400" x-text="agentSessions.connection"></span></div>
               <p class="text-[11px] text-slate-400 mt-2">Events come from the worker's Pi event stream. The conversation viewer updates when Pi saves messages and tool results.</p>
               <p x-show="agentSessions.eventError" role="alert" class="text-xs text-rose-600 mt-3 break-words" x-text="agentSessions.eventError"></p>
               <p x-show="agentSessions.eventsTruncated" class="text-xs text-amber-700 mt-3">Activity capture reached its limit. This view may omit later events.</p>
-              <button x-show="agentSessions.hasEarlier" @click="loadEarlierAgentEvents()" :disabled="agentSessions.loadingEvents" class="text-xs text-brand-600 disabled:opacity-40 mt-3">Load earlier activity</button>
+              <div class="flex flex-wrap items-center gap-x-4 gap-y-2 mt-3">
+                <button x-show="agentSessions.hasEarlier" @click="loadEarlierAgentEvents()" :disabled="agentSessions.loadingEvents" class="text-xs text-brand-600 disabled:opacity-40">Load earlier activity</button>
+                <button x-show="agentSessions.events.length && agentSessions.events.at(-1).sequence < agentSessions.nextAfter" @click="selectAgentSession(agentSessions.selected)" :disabled="agentSessions.loadingEvents" class="text-xs text-brand-600 disabled:opacity-40">Latest activity</button>
+                <label class="text-xs text-slate-500 flex items-center gap-2"><input type="checkbox" x-model="agentSessions.rawEvents">Show raw events</label>
+              </div>
+              <p x-show="agentSessions.events.length" class="text-[11px] text-slate-400 mt-2" x-text="agentActivityWindowLabel()"></p>
               <p x-show="agentSessions.loadingEvents && !agentSessions.events.length" class="text-xs text-slate-400 py-4">Loading Pi activity...</p>
               <p x-show="!agentSessions.loadingEvents && !agentSessions.events.length && !agentSessions.eventError" class="text-xs text-slate-400 py-4" x-text="agentSessions.selected.status === 'running' ? 'Waiting for the first captured Pi event.' : 'No Pi activity events were captured for this invocation.'"></p>
-              <div class="mt-3 space-y-2"><template x-for="record in agentSessions.events" :key="record.sequence"><details class="rounded-lg border border-slate-100 bg-slate-50/70 p-3"><summary class="cursor-pointer text-xs text-slate-600 break-words"><span class="text-[10px] text-slate-400 font-mono mr-2" x-text="`#${record.sequence}`"></span><span class="font-medium" x-text="agentEventLabel(record.event)"></span><span class="block whitespace-pre-wrap break-words mt-1 text-slate-500" x-text="agentEventSummary(record.event)"></span></summary><pre class="mt-3 text-[10px] text-slate-500 whitespace-pre-wrap break-words max-h-60 overflow-auto" x-text="agentEventDetail(record.event)"></pre></details></template></div>
-              <p x-show="agentSessions.events.length >= 100" class="text-[11px] text-slate-400 mt-3">Showing up to 100 events at a time. Open the saved conversation for message history.</p>
+              <div class="mt-3 space-y-2"><template x-for="record in agentActivityRecords()" :key="record.sequence"><details class="rounded-lg border border-slate-100 bg-slate-50/70 p-3"><summary class="cursor-pointer text-xs text-slate-600 break-words"><span class="text-[10px] text-slate-400 font-mono mr-2" x-text="record.firstSequence && record.firstSequence !== record.sequence ? `#${record.firstSequence}–${record.sequence}` : `#${record.sequence}`"></span><span class="font-medium" x-text="agentEventLabel(record.event)"></span><span class="block whitespace-pre-wrap break-words mt-1 text-slate-500" x-text="agentEventSummary(record.event)"></span></summary><pre class="mt-3 text-[10px] text-slate-500 whitespace-pre-wrap break-words max-h-60 overflow-auto" x-text="agentEventDetail(record.event)"></pre></details></template></div>
+              <p x-show="agentSessions.events.length >= 100" class="text-[11px] text-slate-400 mt-3">Up to 100 raw events are kept in this activity window. Open the saved conversation for full message history.</p>
             </section>
           </div>
         </template>
@@ -1728,7 +1758,7 @@ function cairnApp() {
       {key:'cache_write_input_tokens',label:'Cache writes'},
       {key:'output_tokens',label:'Output'},
     ],
-    agentSessions: {open:false,title:'',scope:{},items:[],total:0,offset:0,nextOffset:null,loading:false,error:'',requestVersion:0,selectionVersion:0,selected:null,events:[],nextAfter:0,loadingEvents:false,eventError:'',eventsTruncated:false,hasEarlier:false,connection:'',stream:null,reconnectTimer:null},
+    agentSessions: {open:false,title:'',scope:{},items:[],total:0,offset:0,nextOffset:null,loading:false,error:'',requestVersion:0,selectionVersion:0,selected:null,events:[],nextAfter:0,loadingEvents:false,eventError:'',eventsTruncated:false,hasEarlier:false,showList:true,rawEvents:false,connection:'',stream:null,reconnectTimer:null},
     stageHistory: {},
     emptyStageHistory: {index:null,selectedSource:null,facts:null,selectedFact:null,loadingIndex:false,loadingFacts:false,loadingFact:false,error:''},
     workflowStageSequence: 1,
@@ -2007,7 +2037,7 @@ function cairnApp() {
     },
 
     workflowStatusLabel(status) {
-      return status === 'stopped' ? 'paused' : status;
+      return status;
     },
 
     countProjectsByStatus(status) {
@@ -2094,7 +2124,9 @@ function cairnApp() {
       const state = this.agentSessions;
       const version = ++state.selectionVersion;
       state.selected = session;
+      state.showList = false;
       state.events = [];
+      state.rawEvents = false;
       state.nextAfter = 0;
       state.eventError = '';
       state.eventsTruncated = false;
@@ -2235,21 +2267,77 @@ function cairnApp() {
       });
     },
 
+    agentActivityRecords() {
+      const events = this.agentSessions.events;
+      if (this.agentSessions.rawEvents) return events;
+      const rows = [];
+      const tools = new Map();
+      let assistantIndex = null;
+      for (const record of events) {
+        const event = record.event;
+        if (event.type === 'message_start') { assistantIndex = null; continue; }
+        if (event.type === 'message_update' || event.type === 'message_end') {
+          const message = event.message || event.assistantMessageEvent?.partial;
+          if (message?.role === 'toolResult') continue;
+          if (event.type === 'message_update' && !message) continue;
+          const previous = assistantIndex === null ? null : rows[assistantIndex];
+          const row = {...record, firstSequence:previous?.firstSequence || previous?.sequence || record.sequence};
+          if (previous) rows[assistantIndex] = row;
+          else { rows.push(row); assistantIndex = rows.length - 1; }
+          if (event.type === 'message_end') assistantIndex = null;
+          continue;
+        }
+        if (['tool_execution_start','tool_execution_update','tool_execution_end'].includes(event.type)) {
+          assistantIndex = null;
+          const toolKey = event.toolCallId || record.sequence;
+          const index = tools.get(toolKey);
+          const previous = index === undefined ? null : rows[index];
+          const row = {...record, firstSequence:previous?.firstSequence || previous?.sequence || record.sequence};
+          if (previous) rows[index] = row;
+          else { tools.set(toolKey,rows.length); rows.push(row); }
+          continue;
+        }
+        if (['session','turn_start','turn_end'].includes(event.type)) continue;
+        assistantIndex = null;
+        rows.push(record);
+      }
+      return rows;
+    },
+
+    agentActivityWindowLabel() {
+      const events = this.agentSessions.events;
+      if (!events.length) return '';
+      const range = `Captured events #${events[0].sequence}–${events.at(-1).sequence}`;
+      return `${range}. ${this.agentSessions.rawEvents ? 'Raw events shown individually.' : 'Message updates grouped; repeated turn markers hidden.'} Earlier or later messages may be outside this window.`;
+    },
+
     agentEventLabel(event) {
       const type = event?.type || 'Pi event';
+      if (type === 'message_end' && ['error','aborted'].includes(event.message?.stopReason)) return `Assistant ${event.message.stopReason === 'error' ? 'error' : 'interrupted'}`;
+      if (type === 'message_end') return `${this.usagePhaseLabel(event.message?.role || 'Pi')} message`;
+      if (type === 'message_update' && !this.agentSessions.rawEvents) return 'Assistant message fragment';
+      if (type === 'tool_execution_start') return `Tool started · ${event.toolName || 'unknown tool'}`;
+      if (type === 'tool_execution_update') return `Tool update · ${event.toolName || 'unknown tool'}`;
+      if (type === 'tool_execution_end') return `Tool ${event.isError ? 'failed' : 'finished'} · ${event.toolName || 'unknown tool'}`;
       const detail = event?.assistantMessageEvent?.type;
       return this.usagePhaseLabel(detail ? `${type} · ${detail}` : type);
     },
 
     agentEventSummary(event) {
       const delta = event?.assistantMessageEvent;
+      const message = event?.message || delta?.partial;
+      const content = event?.result?.content || event?.partialResult?.content || message?.content;
+      if (Array.isArray(content)) {
+        const text = content.map(part => {
+          if (part?.type === 'text' || part?.type === 'thinking') return part.text || part.thinking || '';
+          if (part?.type === 'toolCall') return `${part.name || 'Tool'} · ${JSON.stringify(part.arguments || {})}`;
+          return '';
+        }).filter(Boolean).join('\n');
+        if (text) return text.length > 1800 ? text.slice(0,1800)+'\n[Preview shortened. Expand for event details or open the conversation.]' : text;
+      }
       if (typeof delta?.delta === 'string') return delta.delta.slice(0,600);
       if (event?.toolName) return `${event.toolName}${event.args ? ` · ${JSON.stringify(event.args)}` : ''}`.slice(0,600);
-      const message = event?.message;
-      if (Array.isArray(message?.content)) {
-        const text = message.content.filter(part => part?.type === 'text' || part?.type === 'thinking').map(part => part.text || part.thinking || '').join('\n');
-        if (text) return text.slice(0,600);
-      }
+      if (typeof message?.errorMessage === 'string') return message.errorMessage.slice(0,600);
       if (typeof event?.errorMessage === 'string') return event.errorMessage.slice(0,600);
       return '';
     },
@@ -2470,6 +2558,37 @@ function cairnApp() {
       if (row[metric] === null || row[metric] === undefined) return 'Not reported';
       const count = row.metric_reports?.[metric];
       return Number.isFinite(count) ? `${count} report${count === 1 ? '' : 's'}` : 'Reported';
+    },
+
+    async openUsageSession(item) {
+      const opening = this.openAgentSessions({project_id:item.project_id}, `${item.project_id} · usage record missing`);
+      const state = this.agentSessions;
+      const version = state.requestVersion;
+      await opening;
+      if (!state.open || version !== state.requestVersion) return;
+      try {
+        const session = state.items.find(session => session.id === item.invocation_id) || await this.api('GET', `/agent-sessions/${encodeURIComponent(item.invocation_id)}`);
+        if (!state.open || version !== state.requestVersion) return;
+        await this.selectAgentSession(session);
+      } catch (error) {
+        if (state.open && version === state.requestVersion) state.error = `This invocation could not be opened: ${error.message}`;
+      }
+    },
+
+    usageReporterAge(reporter) {
+      const age = Date.now() - Date.parse(reporter?.last_seen);
+      if (!Number.isFinite(age)) return 'Report age unavailable';
+      const minutes = Math.max(0,Math.floor(age / 60000));
+      if (minutes < 1) return 'Reported less than a minute ago';
+      if (minutes < 60) return `Reported ${minutes} minutes ago; current queue state unconfirmed`;
+      const hours = Math.floor(minutes / 60);
+      return `Reported ${hours} hour${hours === 1 ? '' : 's'} ago; current queue state unconfirmed`;
+    },
+
+    usageMissingReportCount() {
+      const unreported = this.usageSummary?.totals?.unreported_attempts;
+      if (!Number.isFinite(unreported)) return null;
+      return unreported + (this.usageSummary?.session_coverage?.missing_usage_attempts || 0);
     },
 
     usageReporterCount(metric) {
@@ -3909,7 +4028,9 @@ function cairnApp() {
         container,
         elements: [...nodes, ...edges],
         style: this.graphStyles(),
-        layout: this.layoutOpts(),
+        // The first fit must not animate toward dimensions measured before
+        // responsive layout settles. A later animation can overwrite resize's fit.
+        layout: this.layoutOpts(false),
         minZoom: 0.15, maxZoom: 3.5,
       });
       this.cy = rawCy;
@@ -4254,26 +4375,33 @@ function cairnApp() {
     setupAutoFit() {
       this.teardownAutoFit();
       const container = document.getElementById('cy');
-      if (!container || !this.cy) return;
-      let fitTimer = null;
+      const graph = this.cy;
+      if (!container || !graph) return;
+      let previousSize = null;
       this._resizeObserver = new ResizeObserver(() => {
-        clearTimeout(fitTimer);
-        fitTimer = setTimeout(() => {
-          if (this.cy) {
-            const clampedWidth = this.clampPanelWidth(this.sidePanelWidth);
-            if (clampedWidth !== this.sidePanelWidth) {
-              this.sidePanelWidth = clampedWidth;
-              this.saveSidePanelWidth();
-            }
-            this.cy.resize();
-            this.cy.fit(undefined, 50);
+        const rect = container.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+        if (previousSize && Math.abs(rect.width - previousSize.width) < 0.5 && Math.abs(rect.height - previousSize.height) < 0.5) return;
+        previousSize = {width:rect.width,height:rect.height};
+        clearTimeout(this._autoFitTimer);
+        this._autoFitTimer = setTimeout(() => {
+          this._autoFitTimer = null;
+          if (this.cy !== graph) return;
+          const clampedWidth = this.clampPanelWidth(this.sidePanelWidth);
+          if (clampedWidth !== this.sidePanelWidth) {
+            this.sidePanelWidth = clampedWidth;
+            this.saveSidePanelWidth();
           }
+          graph.resize();
+          graph.fit(undefined, 50);
         }, 200);
       });
       this._resizeObserver.observe(container);
     },
 
     teardownAutoFit() {
+      clearTimeout(this._autoFitTimer);
+      this._autoFitTimer = null;
       if (this._resizeObserver) {
         this._resizeObserver.disconnect();
         this._resizeObserver = null;
@@ -4288,6 +4416,7 @@ function cairnApp() {
 
     clampPanelWidth(width) {
       const containerWidth = document.getElementById('graphLayout')?.getBoundingClientRect().width || window.innerWidth;
+      if (containerWidth < 768) return width;
       const min = 260;
       const max = Math.max(min, containerWidth - 260);
       return Math.min(max, Math.max(min, width));

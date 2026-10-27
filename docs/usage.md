@@ -40,7 +40,7 @@ At most three queued events are sent per replay pass, at process completion and 
 
 An interrupted dispatcher leaves an unreported attempt with no fabricated completion time. A hard crash cannot recover counters never persisted by the CLI capture. Disk failure can prevent persistence; this is logged explicitly, so the dashboard is not proof against all data loss.
 
-The screen shows the latest reporter state: pending, running, rejected, and last seen. These states are global, independent of the selected date/project filter. Missing or stale reporter health means transfer coverage is uncertain. A healthy empty queue describes known queued events, not provider-wide completeness.
+The screen shows the last reported queue state: pending, active, rejected, and last seen. These states are global, independent of the selected date/project filter. Missing or stale reporter health means transfer coverage is uncertain. A healthy empty queue describes known queued events, not provider-wide completeness.
 
 ## API
 
@@ -48,6 +48,20 @@ The screen shows the latest reporter state: pending, running, rejected, and last
 - `GET /usage/summary?since=<ISO8601>&until=<ISO8601>&project_id=<id>`: model totals, per-metric report counts, invocation coverage, phase counts, and latest global reporter health. Timezones are required; `since` is inclusive and `until` exclusive, applied to invocation start time.
 - `GET /usage/attempts` accepts the same filters plus `offset` and `limit` (default 25, maximum 100). Follow `next_offset` until it is `null`.
 - `POST /usage/reporters`: sanitized current outbox health.
+
+`session_coverage` in the summary compares known Pi invocation registrations with ledger
+rows by exact invocation UUID and project ID, under the same time/project filters.
+`known_pi_invocations` counts those known registrations. `missing_usage_attempts` counts
+registrations with no matching usage row. `missing_usage_items` includes at most 25 latest
+invocation IDs, project/workflow IDs and start times; `limit` and `has_more` state the bound.
+The UI can open each corresponding session. Summary queries read neither transcript bytes
+nor JSON payload columns, and never infer a model or token count from a worker name.
+
+This check exposes a known gap when session delivery succeeds but usage reporting is
+interrupted. It does not recover missing counters or add invented values to totals.
+A running invocation may not have finished reporting yet. A later idempotent usage replay
+clears the matching gap. Zero known gaps is not proof that
+all provider work was captured, and an unreported/partial ledger row remains uncertain.
 
 The attempt ID identifies a process invocation, not a source result or a model reading. Benchmark reconciliation should count attempts once and group the nested `readings` separately. Use `reasoning_effort` when explicitly selected; unknown effort stays unspecified. Ledger rows intentionally have no raw-log pointer.
 
