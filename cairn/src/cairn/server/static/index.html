@@ -230,18 +230,18 @@
 
 <!-- ═══════════ PROJECT LIST VIEW ═══════════ -->
 <div x-show="view === 'list'" x-cloak class="flex-1 flex flex-col overflow-hidden">
-  <header class="bg-white/80 backdrop-blur border-b border-slate-200/60 px-4 py-2.5 flex items-center gap-3 shrink-0">
-    <div class="flex items-center gap-2.5 min-w-0">
+  <header class="bg-white/80 backdrop-blur border-b border-slate-200/60 px-4 py-2.5 flex flex-wrap items-center gap-3 shrink-0">
+    <div class="flex items-center gap-2.5 shrink-0 order-1 sm:order-none">
       <div class="h-8 w-8 rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/40 flex items-center justify-center shrink-0 overflow-hidden">
         <img src="/static/favicon.svg" alt="" class="w-5 h-5 block">
       </div>
       <span class="font-semibold text-slate-700 tracking-tight">Cairn</span>
     </div>
-    <div class="flex-1"></div>
-    <div class="flex items-center gap-3 text-[11px] text-slate-400">
+    <div class="flex-1 order-2 sm:order-none"></div>
+    <div class="hidden md:flex items-center gap-3 text-[11px] text-slate-400">
       <span class="inline-flex items-center gap-1.5 shrink-0" title="All projects">
         <span class="font-medium uppercase tracking-[0.12em] text-slate-400">All</span>
-        <span class="font-semibold text-slate-600 tabular-nums" x-text="projects.length"></span>
+        <span class="font-semibold text-slate-600 tabular-nums" x-text="standaloneProjects().length"></span>
       </span>
       <span class="inline-flex items-center gap-1.5 shrink-0" title="Active projects">
         <span class="h-1.5 w-1.5 rounded-full bg-teal-500"></span>
@@ -264,13 +264,14 @@
         <span x-text="isStoppingAllProjects ? 'Stopping...' : 'Stop Active'"></span>
       </button>
     </div>
-    <div class="flex items-center gap-1.5">
-      <button @click="showNewProject = true" class="h-7 px-2.5 rounded-lg border border-brand-200 text-xs text-brand-600 hover:bg-brand-50 transition inline-flex items-center gap-1.5">
+    <div class="flex items-center justify-end gap-1.5 shrink-0 w-full sm:w-auto order-4 sm:order-none">
+      <button @click="showNewWorkflow = true" class="h-7 px-2.5 rounded-lg bg-brand-500 text-xs text-white hover:bg-brand-600 transition whitespace-nowrap">New workflow</button>
+      <button @click="showNewProject = true" class="h-7 px-2.5 rounded-lg border border-brand-200 text-xs text-brand-600 hover:bg-brand-50 transition inline-flex items-center gap-1.5 whitespace-nowrap">
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
         New Project
       </button>
     </div>
-    <div class="flex items-center gap-1.5 ml-1">
+    <div class="flex items-center gap-1.5 ml-1 shrink-0 order-3 sm:order-none">
       <button @click="showLocalPrefs = true" class="h-7 max-w-40 px-2.5 rounded-lg border border-slate-200 text-xs text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition inline-flex items-center shrink-0">
         <span class="truncate block" x-text="actorName()"></span>
       </button>
@@ -281,8 +282,35 @@
   </header>
 
   <div x-ref="projectListScroll" @scroll.passive="rememberProjectListScroll()" class="flex-1 overflow-y-auto p-4">
-    <template x-if="projects.length === 0">
-      <div class="flex flex-col items-center justify-center h-full text-slate-400">
+    <section class="mb-6" aria-label="Workflows">
+      <div class="flex items-center justify-between gap-3 mb-3">
+        <h2 class="text-sm font-semibold text-slate-700">Workflows</h2>
+        <p class="text-xs text-slate-400">Goals that unlock the next stage</p>
+      </div>
+      <template x-if="workflows.length === 0">
+        <button @click="showNewWorkflow = true" class="w-full text-left border border-dashed border-brand-200 rounded-2xl bg-white p-5 hover:bg-brand-50 transition">
+          <span class="block text-sm font-medium text-brand-600">Create a staged workflow</span>
+          <span class="block text-xs text-slate-500 mt-1">Chain research, work, synthesis, and review. Join parallel branches when their goals are met.</span>
+        </button>
+      </template>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <template x-for="item in workflows" :key="item.id">
+          <button @click="openWorkflow(item.id)" class="text-left bg-white rounded-2xl border border-slate-200 p-5 hover:border-brand-300 hover:shadow-md transition">
+            <div class="flex items-center justify-between gap-2 mb-3">
+              <span class="text-[11px] font-mono text-slate-400" x-text="item.id"></span>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide" :class="projectStatusBadgeClass(item.status)" x-text="item.status"></span>
+            </div>
+            <h3 class="font-semibold text-slate-700 break-words" x-text="item.title"></h3>
+            <p class="text-xs text-slate-500 mt-3" x-text="`${item.completed_stage_count} of ${item.stage_count} goals completed`"></p>
+            <div class="h-1.5 rounded-full bg-slate-100 mt-2 overflow-hidden"><div class="h-full rounded-full bg-brand-500" :style="`width:${item.stage_count ? item.completed_stage_count / item.stage_count * 100 : 0}%`"></div></div>
+            <p class="text-xs text-slate-400 mt-2" x-text="item.status === 'completed' ? 'All stage goals met' : `${item.active_stage_count} active stage${item.active_stage_count === 1 ? '' : 's'}`"></p>
+          </button>
+        </template>
+      </div>
+    </section>
+    <h2 class="text-sm font-semibold text-slate-700 mb-3">Standalone projects</h2>
+    <template x-if="standaloneProjects().length === 0">
+      <div class="flex flex-col items-center justify-center py-12 text-slate-400">
         <img src="/static/favicon.svg" alt="" class="w-20 h-20 mb-5 opacity-30">
         <p class="text-lg font-medium text-slate-500">No projects yet</p>
         <p class="text-sm mt-1">Create a project to start exploring</p>
@@ -290,7 +318,7 @@
     </template>
 
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-      <template x-for="p in projects" :key="p.id">
+      <template x-for="p in standaloneProjects()" :key="p.id">
         <div @click="openProject(p.id)"
           class="group h-full flex flex-col bg-white rounded-2xl border border-slate-200/60 p-5 cursor-pointer transition-all duration-200 hover:shadow-lg hover:shadow-slate-200/50 hover:border-slate-300 hover:-translate-y-0.5">
           <div class="flex items-start justify-between mb-3">
@@ -393,11 +421,110 @@
   </div>
 </div>
 
+<!-- Workflow view -->
+<template x-if="view === 'workflow' && workflow">
+  <div class="flex-1 flex flex-col overflow-hidden">
+    <header class="bg-white border-b border-slate-200 px-4 py-3 flex items-center gap-3 shrink-0">
+      <button @click="backToList()" aria-label="Back to all projects" class="p-2 rounded-lg text-slate-500 hover:bg-slate-100">&larr;</button>
+      <div class="min-w-0 flex-1">
+        <p class="text-[10px] uppercase tracking-widest text-brand-500 font-semibold">Workflow</p>
+        <h1 class="font-semibold text-slate-700 truncate" x-text="workflow.workflow.title"></h1>
+      </div>
+      <span class="px-2 py-1 rounded-full text-[10px] uppercase font-semibold" :class="projectStatusBadgeClass(workflow.workflow.status)" x-text="workflow.workflow.status"></span>
+      <button x-show="workflow.workflow.status !== 'completed'" @click="toggleWorkflowStatus()" :disabled="isChangingWorkflowStatus" class="px-3 py-1.5 rounded-lg border text-xs disabled:opacity-40" :class="workflow.workflow.status === 'active' ? 'border-amber-200 text-amber-700 hover:bg-amber-50' : 'border-teal-200 text-teal-700 hover:bg-teal-50'" x-text="isChangingWorkflowStatus ? 'Saving...' : workflow.workflow.status === 'active' ? 'Stop workflow' : 'Resume workflow'"></button>
+    </header>
+    <main x-ref="workflowScroll" @scroll.passive="rememberWorkflowScroll()" class="flex-1 overflow-y-auto p-4 sm:p-6">
+      <div class="max-w-5xl mx-auto space-y-5">
+        <section class="bg-white border border-slate-200 rounded-2xl p-5">
+          <div class="flex flex-wrap justify-between items-center gap-3">
+            <h2 class="text-sm font-semibold text-slate-700" x-text="`${workflow.stages.filter(stage => stage.status === 'completed').length} of ${workflow.stages.length} goals completed`"></h2>
+            <span class="text-xs text-slate-500" x-text="workflow.workflow.status === 'completed' ? 'Workflow complete' : 'Each stage waits for all its prerequisites'"></span>
+          </div>
+          <div class="h-2 bg-slate-100 rounded-full mt-3 overflow-hidden"><div class="h-full bg-brand-500 rounded-full transition-all" :style="`width:${workflowProgress()}%`"></div></div>
+          <details class="mt-4 text-sm text-slate-600"><summary class="cursor-pointer text-xs font-medium text-slate-500">Starting context</summary><p class="mt-2 whitespace-pre-wrap break-words" x-text="workflow.workflow.origin"></p></details>
+          <p x-show="workflow.workflow.status === 'stopped'" class="text-xs text-amber-700 mt-3">Work is paused. Completed goals and findings are retained.</p>
+        </section>
+        <template x-for="(stage, index) in workflow.stages" :key="stage.id">
+          <article class="rounded-2xl border bg-white overflow-hidden" :class="stage.status === 'active' ? 'border-brand-300 shadow-sm' : 'border-slate-200'">
+            <div class="p-5">
+              <div class="flex items-start gap-3">
+                <span class="h-8 w-8 shrink-0 rounded-full flex items-center justify-center text-xs font-semibold" :class="stage.status === 'completed' ? 'bg-teal-50 text-teal-700' : stage.status === 'active' ? 'bg-brand-50 text-brand-600' : 'bg-slate-100 text-slate-500'" x-text="stage.status === 'completed' ? '✓' : index + 1"></span>
+                <div class="min-w-0 flex-1">
+                  <div class="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wide text-slate-400 mb-1"><span x-text="stage.kind"></span><span x-show="stage.layer" x-text="stage.layer"></span></div>
+                  <h2 class="font-semibold text-slate-700 break-words" x-text="stage.title"></h2>
+                </div>
+                <span class="px-2 py-1 rounded-full text-[10px] uppercase font-semibold shrink-0" :class="workflowStageStatusClass(stage.status)" x-text="stage.status"></span>
+              </div>
+              <p class="text-sm text-slate-600 whitespace-pre-wrap break-words mt-4" x-text="stage.goal"></p>
+              <template x-if="stage.artifact_error">
+                <section role="alert" class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                  <h3 class="text-xs font-semibold text-amber-800">Output files need attention</h3>
+                  <p class="mt-2 text-sm text-amber-900 whitespace-pre-wrap break-words" x-text="stage.artifact_error"></p>
+                  <p class="mt-2 text-xs text-amber-800">Open the stage graph to inspect what happened. Add a hint with corrections if needed, then resume the workflow.</p>
+                </section>
+              </template>
+              <template x-if="stage.artifacts && stage.artifacts.length">
+                <section class="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3">
+                  <h3 class="text-xs font-semibold text-slate-600">Required output files</h3>
+                  <template x-for="artifact in stage.artifacts" :key="artifact.path"><div class="mt-2 text-xs break-words"><span class="text-slate-600" x-text="artifact.label || artifact.path"></span><span class="block font-mono text-[11px] text-slate-400" x-show="artifact.label" x-text="artifact.path"></span></div></template>
+                  <p x-show="stage.status !== 'completed'" class="text-[11px] text-slate-400 mt-2">The stage can finish once its required files have been collected.</p>
+                </section>
+              </template>
+              <div class="flex flex-wrap items-center gap-1.5 mt-3 text-xs text-slate-400">
+                <span x-text="stage.depends_on.length ? 'Requires' : 'Starts from the workflow context'"></span>
+                <template x-for="dependency in stage.depends_on" :key="dependency"><span class="rounded-md bg-slate-50 border border-slate-100 px-2 py-1 text-slate-500" x-text="workflowStageTitle(dependency)"></span></template>
+              </div>
+              <p x-show="stage.status === 'blocked'" class="text-xs text-slate-500 mt-3" x-text="`Waiting for ${workflowWaitingFor(stage).join(', ')}`"></p>
+              <template x-if="stage.completion">
+                <section class="bg-teal-50/60 border border-teal-100 rounded-xl p-4 mt-4">
+                  <h3 class="text-xs font-semibold text-teal-700">Goal achieved</h3>
+                  <p class="text-sm text-slate-700 whitespace-pre-wrap break-words mt-2" x-text="stage.completion.description"></p>
+                  <p class="text-[11px] text-slate-400 mt-2" x-text="`Recorded ${formatDate(stage.completion.completed_at)}`"></p>
+                </section>
+              </template>
+              <template x-if="stage.collected_artifacts && stage.collected_artifacts.length">
+                <section class="mt-4">
+                  <h3 class="text-xs font-semibold text-slate-600">Output files</h3>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                    <template x-for="artifact in stage.collected_artifacts" :key="artifact.id">
+                      <a :href="artifact.download_url" :download="artifact.path.split('/').pop()" class="block rounded-xl border border-brand-100 bg-brand-50/40 p-3 text-brand-600 hover:bg-brand-50 transition">
+                        <span class="block text-sm font-medium break-words" x-text="artifact.label || artifact.path.split('/').pop()"></span>
+                        <span class="block text-[11px] font-mono text-slate-400 break-all mt-1" x-text="artifact.path"></span>
+                        <span class="block text-xs text-brand-500 mt-2" x-text="`Download · ${formatArtifactSize(artifact.size)}`"></span>
+                      </a>
+                    </template>
+                  </div>
+                </section>
+              </template>
+              <template x-if="stage.handoffs && stage.handoffs.length">
+                <details class="mt-4 border-t border-slate-100 pt-3">
+                  <summary class="text-xs font-medium text-slate-500 cursor-pointer" x-text="`Inherited findings from ${stage.handoffs.length} prerequisite stage${stage.handoffs.length === 1 ? '' : 's'}`"></summary>
+                  <div class="mt-3 space-y-3">
+                    <template x-for="handoff in stage.handoffs" :key="handoff.stage_id">
+                      <div class="bg-slate-50 border border-slate-100 rounded-xl p-3">
+                        <h4 class="text-xs font-semibold text-slate-600" x-text="workflowStageTitle(handoff.stage_id)"></h4>
+                        <p class="text-sm text-slate-600 mt-1 whitespace-pre-wrap break-words" x-text="handoff.completion_description"></p>
+                        <template x-for="fact in handoff.facts" :key="fact.id"><p class="text-xs text-slate-500 mt-2 whitespace-pre-wrap break-words" x-text="fact.description"></p></template>
+                      </div>
+                    </template>
+                  </div>
+                </details>
+              </template>
+              <button x-show="stage.project_id" @click="openProject(stage.project_id)" class="text-xs font-medium text-brand-600 hover:text-brand-700 mt-4">Open stage graph &rarr;</button>
+            </div>
+          </article>
+        </template>
+        <p class="text-xs text-slate-400 pb-4">A stage opens when its prerequisite goals are recorded as complete. Parallel stages share the workflow's files. The agent's completion explanation is shown above each finished stage.</p>
+      </div>
+    </main>
+  </div>
+</template>
+
 <!-- ═══════════ GRAPH VIEW ═══════════ -->
 <template x-if="view === 'graph'">
 <div class="flex-1 flex flex-col overflow-hidden">
   <header class="bg-white/80 backdrop-blur border-b border-slate-200/60 px-4 py-2.5 flex items-center gap-3 shrink-0 z-20">
-    <button @click="backToList()" class="p-1.5 rounded-lg hover:bg-slate-100 transition text-slate-400 hover:text-slate-600">
+    <button @click="backFromProject()" :aria-label="project.project.workflow_id ? 'Back to workflow' : 'Back to all projects'" class="p-1.5 rounded-lg hover:bg-slate-100 transition text-slate-400 hover:text-slate-600">
       <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7"/></svg>
     </button>
     <div class="title-action-trigger flex items-center gap-2 min-w-0">
@@ -449,7 +576,8 @@
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path d="M14.25 3H7.5A2.25 2.25 0 0 0 5.25 5.25v13.5A2.25 2.25 0 0 0 7.5 21h9a2.25 2.25 0 0 0 2.25-2.25V8.25L14.25 3Z"/><path d="M14.25 3v5.25h4.5"/><path d="M8.25 12h7.5M8.25 15h5.25"/></svg>
         Snapshot
       </button>
-      <template x-if="!replay.active && project.project.status !== 'completed'">
+      <button x-show="project.project.workflow_id" @click="openWorkflow(project.project.workflow_id)" class="px-2.5 py-1 rounded-lg border border-brand-200 text-xs text-brand-600 hover:bg-brand-50 whitespace-nowrap">Workflow</button>
+      <template x-if="!replay.active && !project.project.workflow_id && project.project.status !== 'completed'">
         <button @click="toggleProjectStop()"
           class="px-2.5 py-1 rounded-lg border text-xs transition flex items-center gap-1.5"
           :class="project.project.status === 'active'
@@ -460,14 +588,14 @@
           <span x-text="project.project.status === 'active' ? 'Stop' : 'Resume'"></span>
         </button>
       </template>
-      <template x-if="!replay.active && project.project.status === 'completed'">
+      <template x-if="!replay.active && !project.project.workflow_id && project.project.status === 'completed'">
         <button @click="openReopenProject(project.project.id, project.project.title)"
           class="px-2.5 py-1 rounded-lg border border-sky-200 text-xs text-sky-600 hover:bg-sky-50 transition flex items-center gap-1.5">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.708"/><path d="M3 3v6h6"/></svg>
           Reopen
         </button>
       </template>
-      <button x-show="!replay.active" @click="deleteProject()" class="px-2.5 py-1 rounded-lg border border-rose-200 text-xs text-rose-500 hover:bg-rose-50 hover:text-rose-600 transition flex items-center gap-1.5">
+      <button x-show="!replay.active && !project.project.workflow_id" @click="deleteProject()" class="px-2.5 py-1 rounded-lg border border-rose-200 text-xs text-rose-500 hover:bg-rose-50 hover:text-rose-600 transition flex items-center gap-1.5">
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4.75A1.75 1.75 0 0 1 9.75 3h4.5A1.75 1.75 0 0 1 16 4.75V6"/><path d="M19 6l-.63 11.338A2 2 0 0 1 16.37 19.5H7.63a2 2 0 0 1-1.997-2.162L5 6"/><path d="M10 10.5v5"/><path d="M14 10.5v5"/></svg>
         Delete
       </button>
@@ -793,6 +921,64 @@
 
 <!-- ═══════════ MODALS ═══════════ -->
 
+<!-- New workflow -->
+<div x-show="showNewWorkflow" x-cloak class="fixed inset-0 z-50 flex items-center justify-center overlay p-3 sm:p-6" @click.self="!isCreatingWorkflow && (showNewWorkflow = false)">
+  <section role="dialog" aria-modal="true" aria-labelledby="new-workflow-title" class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-full flex flex-col border border-slate-200 overflow-hidden" @click.stop>
+    <header class="p-5 border-b border-slate-100 shrink-0">
+      <h2 id="new-workflow-title" class="font-semibold text-slate-700">New workflow</h2>
+      <p class="text-xs text-slate-500 mt-1">Set a goal for each stage. A stage starts after all of its prerequisites finish.</p>
+    </header>
+    <div class="p-5 space-y-5 overflow-y-auto flex-1">
+      <div class="space-y-3">
+        <label class="block text-xs font-medium text-slate-500">Workflow title<input x-model="newWorkflow.title" placeholder="An investigation of X" class="block mt-1 w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-100"></label>
+        <label class="block text-xs font-medium text-slate-500">Starting context<textarea x-model="newWorkflow.origin" placeholder="What is known, what materials are available, and what should the workflow produce?" rows="3" class="block mt-1 w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-100"></textarea></label>
+      </div>
+      <div class="flex flex-wrap justify-between items-center gap-2"><h3 class="text-sm font-semibold text-slate-700">Stages</h3><div class="flex flex-wrap gap-3"><button @click="useArtifactWorkflowExample()" class="text-xs text-brand-600 hover:text-brand-700">Use file workflow example</button><button @click="useResearchWorkflowExample()" class="text-xs text-brand-600 hover:text-brand-700">Use research example</button></div></div>
+      <template x-for="(stage, index) in newWorkflow.stages" :key="stage.id">
+        <section class="rounded-xl border border-slate-200 p-4 space-y-3 bg-slate-50/50">
+          <div class="flex items-center justify-between"><span class="text-xs font-semibold text-slate-500" x-text="`Stage ${index + 1}`"></span><button @click="removeWorkflowStage(stage.id)" :disabled="newWorkflow.stages.length === 1" :aria-label="`Remove stage ${index + 1}`" class="text-xs text-slate-400 hover:text-rose-600 disabled:opacity-30">Remove</button></div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <label class="block text-xs text-slate-500 sm:col-span-2">Title<input x-model="stage.title" :aria-label="`Stage ${index + 1} title`" placeholder="Investigate the topic" class="block w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-brand-100"></label>
+            <label class="block text-xs text-slate-500">Type<select x-model="stage.kind" :aria-label="`Stage ${index + 1} type`" class="block w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white"><option value="research">Research</option><option value="work">Work</option><option value="synthesis">Synthesis</option><option value="review">Review</option></select></label>
+          </div>
+          <label class="block text-xs text-slate-500"><span x-text="stage.artifacts.length ? 'Goal, optional when output files are specified' : 'Goal'"></span><textarea x-model="stage.goal" :aria-label="`Stage ${index + 1} goal`" placeholder="Describe the result that must exist before this stage is complete." rows="2" class="block w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-brand-100"></textarea></label>
+          <section class="pt-2">
+            <div class="flex items-center justify-between gap-2"><h4 class="text-xs font-medium text-slate-500">Output files, optional</h4><button @click="stage.artifacts.push({path:'',label:''})" class="text-xs text-brand-600 hover:text-brand-700">+ Add output file</button></div>
+            <template x-for="(artifact, artifactIndex) in stage.artifacts" :key="artifactIndex">
+              <div class="flex items-start gap-2 mt-2">
+                <div class="flex-1 min-w-0 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <label class="text-[11px] text-slate-500">File path<input x-model="artifact.path" :aria-label="`Stage ${index + 1} output ${artifactIndex + 1} path`" placeholder="outputs/result.pdf" class="block w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono text-slate-700 bg-white"></label>
+                  <label class="text-[11px] text-slate-500">Display label, optional<input x-model="artifact.label" :aria-label="`Stage ${index + 1} output ${artifactIndex + 1} label`" placeholder="Final report" class="block w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white"></label>
+                </div>
+                <button @click="stage.artifacts.splice(artifactIndex, 1)" :aria-label="`Remove stage ${index + 1} output ${artifactIndex + 1}`" class="text-slate-400 hover:text-rose-600 pt-6 px-1">&times;</button>
+              </div>
+            </template>
+            <p x-show="stage.artifacts.length" class="text-[11px] text-slate-400 mt-2">Use relative file paths in the shared workspace. Every listed file is required before this stage can finish. Each stage must use distinct output paths; it can read input files from its prerequisites.</p>
+          </section>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label class="block text-xs text-slate-500">Layer label, optional<input x-model="stage.layer" :aria-label="`Stage ${index + 1} layer`" placeholder="Evidence, drafting, validation..." class="block w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white"></label>
+            <label class="flex items-center gap-2 text-xs text-slate-500 sm:pt-5"><input type="checkbox" x-model="stage.bootstrap_enabled" class="rounded border-slate-300">Try the stage goal directly first</label>
+          </div>
+          <fieldset class="pt-3 border-t border-slate-200"><legend class="text-xs font-medium text-slate-500">Prerequisite stages</legend>
+            <p x-show="index === 0" class="text-xs text-slate-400">Starts from the workflow context.</p>
+            <div class="flex flex-wrap gap-x-4 gap-y-2">
+              <template x-for="prerequisite in newWorkflow.stages.slice(0, index)" :key="prerequisite.id"><label class="inline-flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" :value="prerequisite.id" x-model="stage.depends_on" class="rounded border-slate-300"><span x-text="prerequisite.title || 'Untitled stage'"></span></label></template>
+            </div>
+            <p x-show="index > 0" class="text-[11px] text-slate-400 mt-2">Select several to join branches. Select none to run independently.</p>
+          </fieldset>
+        </section>
+      </template>
+      <button @click="addWorkflowStage()" class="w-full py-2.5 rounded-xl border border-dashed border-brand-200 text-sm text-brand-600 hover:bg-brand-50">+ Add stage</button>
+      <p class="text-xs text-slate-500">Each stage inherits findings from its prerequisites. Stages share a retained workspace for files and drafts.</p>
+      <p x-show="workflowFormError" x-text="workflowFormError" role="alert" class="text-sm text-rose-600 whitespace-pre-wrap"></p>
+    </div>
+    <footer class="p-4 border-t border-slate-100 flex justify-end gap-2 shrink-0">
+      <button @click="showNewWorkflow = false" :disabled="isCreatingWorkflow" class="px-4 py-2 text-sm text-slate-500 hover:bg-slate-50 rounded-xl disabled:opacity-40">Cancel</button>
+      <button @click="createWorkflow()" :disabled="!workflowFormValid() || isCreatingWorkflow" class="px-5 py-2 text-sm bg-brand-500 text-white rounded-xl font-medium hover:bg-brand-600 disabled:opacity-40" x-text="isCreatingWorkflow ? 'Creating...' : 'Create workflow'"></button>
+    </footer>
+  </section>
+</div>
+
 <!-- New Project -->
 <div x-show="showNewProject" x-cloak class="fixed inset-0 z-50 flex items-center justify-center overlay" @click.self="showNewProject = false">
   <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 border border-slate-200/60" @click.stop>
@@ -1074,6 +1260,19 @@ function cairnApp() {
   return {
     view: 'list',
     projects: [],
+    workflows: [],
+    workflow: null,
+    selectedWorkflowId: '',
+    showNewWorkflow: false,
+    isCreatingWorkflow: false,
+    isChangingWorkflowStatus: false,
+    workflowFormError: '',
+    workflowScrollPositions: {},
+    workflowStageSequence: 2,
+    newWorkflow: { title: '', origin: '', stages: [
+      { id: 'stage_1', title: 'Investigation', goal: '', kind: 'research', layer: '', depends_on: [], bootstrap_enabled: true, artifacts: [] },
+      { id: 'stage_2', title: 'Produce the result', goal: '', kind: 'work', layer: '', depends_on: ['stage_1'], bootstrap_enabled: true, artifacts: [] },
+    ] },
     project: null,
     selectedProjectId: '',
     polling: true,
@@ -1140,6 +1339,7 @@ function cairnApp() {
       window.addEventListener('pointerup', this._panelResizeStop);
       this.loadLocalPrefs();
       await this.loadProjects();
+      await this.loadWorkflows();
       await this.loadSettings();
       this.startPolling();
       window.addEventListener('hashchange', () => this.handleRoute());
@@ -1148,6 +1348,12 @@ function cairnApp() {
 
     handleRoute() {
       const hash = location.hash || '#/';
+      const workflowMatch = hash.match(/^#\/workflows\/([^/]+)$/);
+      if (workflowMatch) {
+        const id = decodeURIComponent(workflowMatch[1]);
+        if (this.selectedWorkflowId !== id || this.view !== 'workflow') this.openWorkflow(id);
+        return;
+      }
       const m = hash.match(/^#\/projects\/(.+)$/);
       if (m) {
         const id = m[1];
@@ -1313,11 +1519,11 @@ function cairnApp() {
     },
 
     countProjectsByStatus(status) {
-      return this.projects.filter(project => project.status === status).length;
+      return this.standaloneProjects().filter(project => project.status === status).length;
     },
 
     hasActiveProjects() {
-      return this.projects.some(project => project.status === 'active');
+      return this.standaloneProjects().some(project => project.status === 'active') || this.workflows.some(workflow => workflow.status === 'active');
     },
 
     projectCanWriteHints() {
@@ -1330,6 +1536,172 @@ function cairnApp() {
 
     async loadProjects() {
       try { this.projects = await this.api('GET', '/projects'); } catch(e) { console.error(e); }
+    },
+
+    standaloneProjects() {
+      return this.projects.filter(project => !project.workflow_id);
+    },
+
+    async loadWorkflows() {
+      try { this.workflows = await this.api('GET', '/workflows'); } catch(e) { console.error(e); }
+    },
+
+    async loadWorkflow(id) {
+      try {
+        const data = await this.api('GET', `/workflows/${encodeURIComponent(id)}`);
+        if (this.selectedWorkflowId === id) this.workflow = data;
+        return data;
+      } catch(e) {
+        this.showToast(e.message, 'error');
+        return null;
+      }
+    },
+
+    async openWorkflow(id) {
+      if (!id) return;
+      this.rememberWorkflowScroll();
+      this.selectedWorkflowId = id;
+      const data = await this.loadWorkflow(id);
+      if (!data || this.selectedWorkflowId !== id) return;
+      this.stopReplayTimer();
+      this.replay.active = false;
+      this.replay.playing = false;
+      this.polling = true;
+      this.teardownAutoFit();
+      if (this.cy) { this.cy.destroy(); this.cy = null; }
+      this.selectedProjectId = '';
+      this.project = null;
+      this.view = 'workflow';
+      this.$nextTick(() => {
+        const scroller = this.$refs.workflowScroll;
+        if (scroller) scroller.scrollTop = this.workflowScrollPositions[id] || 0;
+      });
+      const hash = `#/workflows/${encodeURIComponent(id)}`;
+      if (location.hash !== hash) location.hash = hash.slice(1);
+    },
+
+    backFromProject() {
+      const workflowId = this.project?.project?.workflow_id;
+      if (workflowId) this.openWorkflow(workflowId);
+      else this.backToList();
+    },
+
+    workflowProgress() {
+      if (!this.workflow?.stages.length) return 0;
+      return this.workflow.stages.filter(stage => stage.status === 'completed').length / this.workflow.stages.length * 100;
+    },
+
+    rememberWorkflowScroll() {
+      if (this.view !== 'workflow' || !this.selectedWorkflowId || !this.$refs.workflowScroll) return;
+      this.workflowScrollPositions[this.selectedWorkflowId] = this.$refs.workflowScroll.scrollTop;
+    },
+
+    formatArtifactSize(size) {
+      if (size < 1024) return `${size} bytes`;
+      if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+      return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+    },
+
+    workflowStageTitle(id) {
+      return this.workflow?.stages.find(stage => stage.id === id)?.title || id;
+    },
+
+    workflowWaitingFor(stage) {
+      return stage.depends_on.filter(id => this.workflow.stages.find(item => item.id === id)?.status !== 'completed').map(id => this.workflowStageTitle(id));
+    },
+
+    workflowStageStatusClass(status) {
+      if (status === 'completed') return 'bg-teal-50 text-teal-700';
+      if (status === 'active') return 'bg-brand-50 text-brand-600';
+      if (status === 'stopped') return 'bg-amber-50 text-amber-700';
+      return 'bg-slate-100 text-slate-500';
+    },
+
+    async toggleWorkflowStatus() {
+      if (!this.workflow || this.workflow.workflow.status === 'completed' || this.isChangingWorkflowStatus) return;
+      this.isChangingWorkflowStatus = true;
+      try {
+        const id = this.workflow.workflow.id;
+        const status = this.workflow.workflow.status === 'active' ? 'stopped' : 'active';
+        const updated = await this.api('PUT', `/workflows/${encodeURIComponent(id)}/status`, {status});
+        if (this.selectedWorkflowId === id) this.workflow = updated;
+        await Promise.all([this.loadProjects(), this.loadWorkflows()]);
+        this.showToast(status === 'stopped' ? 'Workflow stopped' : 'Workflow resumed');
+      } catch(e) { this.showToast(e.message, 'error'); }
+      finally { this.isChangingWorkflowStatus = false; }
+    },
+
+    workflowFormValid() {
+      return !!this.newWorkflow.title.trim() && !!this.newWorkflow.origin.trim()
+        && this.newWorkflow.stages.length > 0
+        && this.newWorkflow.stages.every(stage => stage.title.trim()
+          && (stage.goal.trim() || stage.artifacts.length > 0)
+          && stage.artifacts.every(artifact => artifact.path.trim()));
+    },
+
+    addWorkflowStage() {
+      const stages = this.newWorkflow.stages;
+      this.workflowStageSequence += 1;
+      stages.push({ id: `stage_${this.workflowStageSequence}`, title: '', goal: '', kind: 'work', layer: '', depends_on: stages.length ? [stages[stages.length - 1].id] : [], bootstrap_enabled: true, artifacts: [] });
+    },
+
+    removeWorkflowStage(id) {
+      if (this.newWorkflow.stages.length <= 1) return;
+      this.newWorkflow.stages = this.newWorkflow.stages.filter(stage => stage.id !== id);
+      for (const stage of this.newWorkflow.stages) stage.depends_on = stage.depends_on.filter(dependency => dependency !== id);
+    },
+
+    useResearchWorkflowExample() {
+      this.newWorkflow = {
+        title: 'Research investigation',
+        origin: 'Investigate the chosen topic using available sources. Preserve source references, research notes, and drafts in the shared workspace.',
+        stages: [
+          { id: 'stage_1', title: 'Gather evidence', goal: 'Build a source-backed set of findings, document uncertainties, and save research notes with citations.', kind: 'research', layer: 'Evidence', depends_on: [], bootstrap_enabled: true, artifacts: [{path:'notes/evidence.md',label:'Evidence notes'}] },
+          { id: 'stage_2', title: 'Investigate alternative explanations', goal: 'Find evidence for competing explanations and record where sources disagree.', kind: 'research', layer: 'Evidence', depends_on: [], bootstrap_enabled: true, artifacts: [{path:'notes/alternatives.md',label:'Alternative explanations'}] },
+          { id: 'stage_3', title: 'Write the investigation', goal: 'Synthesize both research branches into a readable investigation in report.md, with citations and clear conclusions.', kind: 'synthesis', layer: 'Manuscript', depends_on: ['stage_1', 'stage_2'], bootstrap_enabled: true, artifacts: [{path:'report.md',label:'Investigation draft'}] },
+          { id: 'stage_4', title: 'Research remaining gaps', goal: 'Read report.md, investigate its unresolved questions, and save additional findings with source references.', kind: 'research', layer: 'Validation', depends_on: ['stage_3'], bootstrap_enabled: true, artifacts: [{path:'notes/gaps.md',label:'Follow-up research'}] },
+          { id: 'stage_5', title: 'Review and revise', goal: 'Read report.md and check the investigation against the evidence and new findings. Write reviewed-report.md with unsupported claims resolved and remaining limitations documented.', kind: 'review', layer: 'Validation', depends_on: ['stage_4'], bootstrap_enabled: true, artifacts: [{path:'reviewed-report.md',label:'Reviewed investigation'}] },
+        ],
+      };
+      this.workflowStageSequence = 5;
+      this.workflowFormError = '';
+    },
+
+    useArtifactWorkflowExample() {
+      this.newWorkflow = {
+        title: 'Evidence to output',
+        origin: 'Describe the task, the available information, and the output file you need. Replace the example goals and file path with your requirements.',
+        stages: [
+          {id:'stage_1',title:'Find evidence',goal:'Investigate the task and record the evidence needed to produce the output.',kind:'research',layer:'',depends_on:[],bootstrap_enabled:true,artifacts:[]},
+          {id:'stage_2',title:'Produce the output',goal:'',kind:'work',layer:'',depends_on:['stage_1'],bootstrap_enabled:true,artifacts:[{path:'outputs/result.txt',label:'Result'}]},
+          {id:'stage_3',title:'Check the output',goal:'Read outputs/result.txt, check it against the task and evidence, and record any limitations.',kind:'review',layer:'',depends_on:['stage_2'],bootstrap_enabled:true,artifacts:[]},
+        ],
+      };
+      this.workflowStageSequence = 3;
+      this.workflowFormError = '';
+    },
+
+    async createWorkflow() {
+      if (!this.workflowFormValid() || this.isCreatingWorkflow) return;
+      this.workflowFormError = '';
+      this.isCreatingWorkflow = true;
+      try {
+        const data = await this.api('POST', '/workflows', {
+          title: this.newWorkflow.title.trim(), origin: this.newWorkflow.origin.trim(),
+          stages: this.newWorkflow.stages.map(stage => ({
+            id: stage.id, title: stage.title.trim(), goal: stage.goal.trim(), kind: stage.kind,
+            layer: stage.layer.trim() || null, depends_on: [...stage.depends_on], bootstrap_enabled: stage.bootstrap_enabled,
+            artifacts: stage.artifacts.map(artifact => ({path:artifact.path.trim(),label:artifact.label.trim() || null})),
+          })),
+        });
+        this.showNewWorkflow = false;
+        this.newWorkflow = {title: '', origin: '', stages: [{id:'stage_1',title:'',goal:'',kind:'work',layer:'',depends_on:[],bootstrap_enabled:true,artifacts:[]}]};
+        this.workflowStageSequence = 1;
+        await Promise.all([this.loadProjects(), this.loadWorkflows()]);
+        await this.openWorkflow(data.workflow.id);
+        this.showToast('Workflow created');
+      } catch(e) { this.workflowFormError = e.message; }
+      finally { this.isCreatingWorkflow = false; }
     },
 
     rememberProjectListScroll() {
@@ -1634,20 +2006,24 @@ function cairnApp() {
     },
 
     async stopAllActiveProjects() {
-      const activeProjects = this.projects.filter(project => project.status === 'active');
-      if (activeProjects.length === 0 || this.isStoppingAllProjects) return;
+      const activeProjects = this.standaloneProjects().filter(project => project.status === 'active');
+      const activeWorkflows = this.workflows.filter(workflow => workflow.status === 'active');
+      if ((activeProjects.length === 0 && activeWorkflows.length === 0) || this.isStoppingAllProjects) return;
       this.isStoppingAllProjects = true;
       try {
         const results = await Promise.allSettled(
-          activeProjects.map(project => this.setProjectStatus(project.id, 'stopped', { reload: false, toast: false }))
+          [
+            ...activeProjects.map(project => this.setProjectStatus(project.id, 'stopped', { reload: false, toast: false })),
+            ...activeWorkflows.map(workflow => this.api('PUT', `/workflows/${encodeURIComponent(workflow.id)}/status`, {status:'stopped'})),
+          ]
         );
-        await this.loadProjects();
+        await Promise.all([this.loadProjects(), this.loadWorkflows()]);
         const successCount = results.filter(result => result.status === 'fulfilled').length;
         const failureCount = results.length - successCount;
         if (failureCount === 0) {
-          this.showToast(`Stopped ${successCount} active project${successCount === 1 ? '' : 's'}`);
+          this.showToast(`Stopped ${activeProjects.length} project${activeProjects.length === 1 ? '' : 's'} and ${activeWorkflows.length} workflow${activeWorkflows.length === 1 ? '' : 's'}`);
         } else {
-          this.showToast(`Stopped ${successCount} projects, ${failureCount} failed`, 'error');
+          this.showToast(`Stopped ${successCount}; ${failureCount} could not be stopped`, 'error');
         }
       } catch (e) {
         this.showToast(e.message, 'error');
@@ -2067,6 +2443,7 @@ function cairnApp() {
     },
 
     async openProject(id) {
+      this.rememberWorkflowScroll();
       if (this.replay.active) {
         this.stopReplayTimer();
         this.replay.active = false;
@@ -2100,6 +2477,7 @@ function cairnApp() {
     },
 
     backToList(fromRoute) {
+      this.rememberWorkflowScroll();
       if (this.replay.active) {
         this.stopReplayTimer();
         this.replay.active = false;
@@ -2113,6 +2491,8 @@ function cairnApp() {
         this.polling = true;
       }
       this.view = 'list';
+      this.selectedWorkflowId = '';
+      this.workflow = null;
       this.shouldRestoreProjectListScroll = true;
       this.project = null;
       this.selectedProjectId = '';
@@ -2122,7 +2502,7 @@ function cairnApp() {
       this.teardownAutoFit();
       if (this.cy) { this.cy.destroy(); this.cy = null; }
       if (!fromRoute) location.hash = '/';
-      this.loadProjects().then(() => this.restoreProjectListScroll());
+      Promise.all([this.loadProjects(), this.loadWorkflows()]).then(() => this.restoreProjectListScroll());
     },
 
     startPolling() {
@@ -2131,8 +2511,10 @@ function cairnApp() {
         if (this.selectedProjectId && this.view === 'graph') {
           await this.loadProject(this.selectedProjectId);
           this.updateGraph();
+        } else if (this.selectedWorkflowId && this.view === 'workflow') {
+          await this.loadWorkflow(this.selectedWorkflowId);
         } else {
-          await this.loadProjects();
+          await Promise.all([this.loadProjects(), this.loadWorkflows()]);
         }
       }, 5000);
     },

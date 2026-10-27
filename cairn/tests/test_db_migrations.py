@@ -68,3 +68,27 @@ def test_configure_maps_disabled_bootstrap_mode_to_false(tmp_path, monkeypatch) 
         ("proj_001", 0),
         ("proj_002", 1),
     ]
+
+
+def test_configure_adds_artifact_recovery_state_to_existing_workflow_stages(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "workflow-before-recovery.db"
+    with sqlite3.connect(path) as conn:
+        conn.execute("""
+            CREATE TABLE workflow_stages (
+                workflow_id TEXT NOT NULL, id TEXT NOT NULL, position INTEGER NOT NULL,
+                definition_json TEXT NOT NULL, project_id TEXT UNIQUE,
+                handoffs_json TEXT NOT NULL DEFAULT '[]', completion_json TEXT,
+                PRIMARY KEY (workflow_id, id)
+            )
+        """)
+        conn.execute(
+            "INSERT INTO workflow_stages (workflow_id,id,position,definition_json) VALUES (?,?,?,?)",
+            ("workflow_001", "research", 0, '{"id":"research","title":"Research","goal":"Investigate"}'),
+        )
+    monkeypatch.setattr(db, "_db_path", None)
+    db.configure(path)
+    with db.get_conn() as conn:
+        row = conn.execute("SELECT * FROM workflow_stages WHERE id = 'research'").fetchone()
+    assert row["workflow_id"] == "workflow_001"
+    assert row["artifact_recovery_attempts"] == 0
+    assert row["artifact_error"] is None

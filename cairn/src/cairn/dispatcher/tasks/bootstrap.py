@@ -4,6 +4,7 @@ import logging
 import time
 
 from cairn.dispatcher.config import DispatchConfig, WorkerConfig
+from cairn.dispatcher.artifacts import capture_required_artifacts
 from cairn.dispatcher.contracts import (
     parse_json_output,
     validate_bootstrap_conclude_payload,
@@ -46,7 +47,7 @@ def run_bootstrap_task(
     lease = HeartbeatLease.for_intent(client, project.project.id, intent.id, worker.name, config.runtime.interval)
     lease.start()
     try:
-        container_name = container_manager.ensure_running(project.project.id)
+        container_name = container_manager.ensure_running(project.project.runtime_id)
 
         if task_healthcheck_enabled(config):
             LOG.info(
@@ -177,7 +178,8 @@ def run_bootstrap_task(
                 return "rejected"
             return _write_bootstrap_complete_result(
                 client,
-                project.project.id,
+                container_manager,
+                project,
                 intent.id,
                 worker.name,
                 data["fact_description"],
@@ -284,7 +286,7 @@ def _try_conclude_fallback(
         best_effort_release(client, project.project.id, intent.id, worker.name)
         return "failed"
 
-    container_name = container_manager.ensure_running(project.project.id)
+    container_name = container_manager.ensure_running(project.project.runtime_id)
 
     prompt = render_prompt(
         load_prompt(config.runtime.prompt_group, "bootstrap_conclude.md"),
@@ -401,7 +403,8 @@ def _bootstrap_prompt_replacements(project: ProjectDetail) -> dict[str, str]:
 
 def _write_bootstrap_complete_result(
     client: CairnClient,
-    project_id: str,
+    container_manager: ContainerManager,
+    project: ProjectDetail,
     intent_id: str,
     worker_name: str,
     fact_description: str,
@@ -411,6 +414,7 @@ def _write_bootstrap_complete_result(
     phase_ms: int,
     total_ms: int | None = None,
 ) -> str:
+    project_id = project.project.id
     conclude = write_conclude_result_with_fact_id(
         client,
         project_id,
@@ -433,6 +437,10 @@ def _write_bootstrap_complete_result(
         )
         return "success"
 
+    if project.required_artifacts and not capture_required_artifacts(
+        client, container_manager, client.get_project(project_id), worker_name,
+    ):
+        return "success"
     response = client.complete(project_id, [conclude.fact_id], complete_description, worker_name)
     if response.status_code in (403, 409):
         LOG.info(

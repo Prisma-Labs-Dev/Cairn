@@ -7,6 +7,7 @@ from pathlib import Path
 
 from cairn.dispatcher.config import LocalConfig
 from cairn.dispatcher.runtime.local_process import LocalProcess
+from cairn.dispatcher.runtime.artifact_files import read_relative_file
 
 LOG = logging.getLogger(__name__)
 
@@ -61,6 +62,9 @@ class LocalBackend:
             raise ValueError(f"local file path must be absolute: {path}")
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
+
+    def read_file(self, container_name: str, path: str, max_bytes: int) -> bytes:
+        return read_relative_file(Path(container_name), path, max_bytes)
 
     def needs_completed_cleanup(self, project_id: str) -> bool:
         return self._config.completed_action == "remove" and self._project_dir(project_id).exists()

@@ -61,6 +61,7 @@ class DispatcherLoop:
         self._log_state: dict[str, tuple[int, str, tuple[object, ...]]] = {}
         self._cleanup_pending: set[str] = set()
         self._inactive_cleanup_done: dict[str, str] = {}
+        self._workflow_cleanup_done: set[str] = set()
         self.project_cursor = 0
         self._settings_checked = False
         self._startup_healthchecks_checked = False
@@ -253,7 +254,7 @@ class DispatcherLoop:
 
     def _try_dispatch_project(self, summary: ProjectSummary) -> bool:
         skip_scope = f"project:{summary.id}:skip"
-        container_name = self.container_manager.container_name(summary.id)
+        container_name = self.container_manager.container_name(summary.runtime_id)
         if container_name in self._cleanup_pending:
             self._log_changed(
                 f"{skip_scope}:cleanup_pending",
@@ -662,6 +663,10 @@ class DispatcherLoop:
         return intents[0]
 
     def _is_initial_project(self, project: ProjectDetail) -> bool:
+        if project.project.workflow_id:
+            # Inherited dependency facts seed a stage before its own work begins.
+            # They must not silently disable that stage's bootstrap setting.
+            return not project.intents or all(self._is_bootstrap_intent(intent) for intent in project.intents)
         fact_ids = {fact.id for fact in project.facts}
         if fact_ids != {"origin", "goal"} or len(project.facts) != 2:
             return False
@@ -783,6 +788,8 @@ class DispatcherLoop:
 
     def _cleanup_completed_containers(self, summaries: list[ProjectSummary]) -> None:
         for summary in summaries:
+            if summary.workflow_id:
+                continue
             if summary.status != "completed":
                 continue
             if self._inactive_cleanup_done.get(summary.id) == summary.status:
@@ -799,6 +806,8 @@ class DispatcherLoop:
 
     def _cleanup_stopped_containers(self, summaries: list[ProjectSummary]) -> None:
         for summary in summaries:
+            if summary.workflow_id:
+                continue
             if summary.status != "stopped":
                 continue
             if self._inactive_cleanup_done.get(summary.id) == summary.status:
@@ -816,6 +825,35 @@ class DispatcherLoop:
     def _queue_container_cleanups(self, summaries: list[ProjectSummary]) -> None:
         self._cleanup_completed_containers(summaries)
         self._cleanup_stopped_containers(summaries)
+        self._cleanup_workflow_runtimes(summaries)
+
+    def _cleanup_workflow_runtimes(self, summaries: list[ProjectSummary]) -> None:
+        """Retain workflow artifacts, even if standalone completed_action is remove.
+
+        An intermediate project's completion must never stop its successors or an
+        active parallel branch. Wait for cancelled tasks to exit before stopping
+        a paused/finished workflow runtime. Metadata from the server reconstructs
+        grouping after a dispatcher restart.
+        """
+        groups: dict[str, list[ProjectSummary]] = {}
+        for summary in summaries:
+            if summary.workflow_id:
+                groups.setdefault(summary.workflow_id, []).append(summary)
+        running_projects = {task.project_id for task in self.futures.values()}
+        for workflow_id, projects in groups.items():
+            if any(project.status == "active" or project.id in running_projects for project in projects):
+                continue
+            if workflow_id in self._workflow_cleanup_done:
+                continue
+            name = self.container_manager.container_name(workflow_id)
+            if name in self._cleanup_pending:
+                continue
+            if not self.container_manager.needs_stopped_cleanup(workflow_id):
+                self._workflow_cleanup_done.add(workflow_id)
+                continue
+            future = self.cleanup_executor.submit(self.container_manager.cleanup_stopped, workflow_id)
+            self.cleanup_futures[future] = (name, workflow_id, "workflow_inactive")
+            self._cleanup_pending.add(name)
 
     def _reap_cleanup_futures(self) -> None:
         done = [future for future in self.cleanup_futures if future.done()]
@@ -824,17 +862,29 @@ class DispatcherLoop:
             self._cleanup_pending.discard(name)
             try:
                 success = future.result()
-                if success and project_id is not None and target_status in ("completed", "stopped"):
+                if target_status == "workflow_inactive" and project_id is not None:
+                    if success:
+                        self._workflow_cleanup_done.add(project_id)
+                    else:
+                        self._workflow_cleanup_done.discard(project_id)
+                elif success and project_id is not None and target_status in ("completed", "stopped"):
                     self._inactive_cleanup_done[project_id] = target_status
                 elif project_id is not None:
                     self._inactive_cleanup_done.pop(project_id, None)
             except Exception:
-                if project_id is not None:
+                if target_status == "workflow_inactive" and project_id is not None:
+                    self._workflow_cleanup_done.discard(project_id)
+                elif project_id is not None:
                     self._inactive_cleanup_done.pop(project_id, None)
                 LOG.exception("container cleanup failed container=%s", name)
 
     def _refresh_runtime_projects(self, summaries: list[ProjectSummary]) -> None:
         active_ids = {summary.id for summary in summaries if summary.status == "active"}
+        active_workflows = {
+            summary.workflow_id for summary in summaries
+            if summary.workflow_id and summary.status == "active"
+        }
+        self._workflow_cleanup_done.difference_update(active_workflows)
         self.runtime_project_ids.intersection_update(active_ids)
         inactive_status_by_id = {summary.id: summary.status for summary in summaries if summary.status != "active"}
         for project_id, status in list(self._inactive_cleanup_done.items()):

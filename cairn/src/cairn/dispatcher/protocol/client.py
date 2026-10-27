@@ -128,6 +128,28 @@ class CairnClient:
             json={"from": from_ids, "description": description, "creator": creator, "worker": None},
         )
 
+    def create_hint(self, project_id: str, content: str, creator: str) -> ApiResult:
+        return self._request_json(
+            "POST", f"/projects/{project_id}/hints", json={"content": content, "creator": creator},
+        )
+
+    def upload_artifact(self, project_id: str, path: str, content: bytes) -> ApiResult:
+        try:
+            response = self._session().post(
+                self._url(f"/projects/{project_id}/artifacts"), params={"path": path},
+                data=content, headers={"Content-Type": "application/octet-stream"}, timeout=self._timeout,
+            )
+        except requests.RequestException as exc:
+            return ApiResult(status_code=0, text=str(exc))
+        data = response.json() if response.headers.get("content-type", "").startswith("application/json") else None
+        return ApiResult(status_code=response.status_code, data=data, text=response.text)
+
+    def request_artifact_recovery(self, project_id: str, description: str, worker: str) -> ApiResult:
+        return self._request_json(
+            "POST", f"/projects/{project_id}/artifact-recovery",
+            json={"worker": worker, "description": description},
+        )
+
     def _request_json(self, method: str, path: str, json: dict[str, Any]) -> ApiResult:
         try:
             response = self._session().request(

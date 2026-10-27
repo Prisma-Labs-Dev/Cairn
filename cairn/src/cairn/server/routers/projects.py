@@ -1,6 +1,8 @@
 from fastapi import APIRouter, HTTPException
 
 from cairn.server.db import get_conn
+from cairn.server.artifact_service import requirements_for_project, require_stage_artifacts
+from cairn.server.workflow_service import complete_workflow_stage, require_standalone_project
 from cairn.server.models import (
     CompleteRequest,
     CreateProjectRequest,
@@ -64,6 +66,8 @@ def list_projects():
                 bootstrap_enabled=bool(row["bootstrap_enabled"]),
                 created_at=row["created_at"],
                 reason=project_reason_from_row(row),
+                workflow_id=row["workflow_id"],
+                workflow_stage_id=row["workflow_stage_id"],
                 fact_count=row["fact_count"],
                 intent_count=row["intent_count"],
                 working_intent_count=row["working_intent_count"],
@@ -141,13 +145,14 @@ def get_project(project_id: str):
             facts=[Fact(**dict(f)) for f in facts],
             intents=build_intents(conn, project_id),
             hints=[Hint(**dict(h)) for h in hints],
+            required_artifacts=requirements_for_project(conn, project_id),
         )
 
 
 @router.delete("/projects/{project_id}", status_code=204)
 def delete_project(project_id: str):
     with get_conn() as conn:
-        get_project_or_404(conn, project_id)
+        require_standalone_project(get_project_or_404(conn, project_id))
         conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
 
 
@@ -168,6 +173,7 @@ def update_project_status(project_id: str, body: UpdateProjectStatusRequest):
     with get_conn() as conn:
         expire_reason_leases(conn, project_id)
         row = get_project_or_404(conn, project_id)
+        require_standalone_project(row)
         current_status = row["status"]
         if current_status == "completed":
             raise HTTPException(409, "Completed projects cannot change status")
@@ -257,10 +263,13 @@ def release_project_reason(project_id: str, body: HeartbeatRequest):
 @router.post("/projects/{project_id}/complete", response_model=Intent)
 def complete_project(project_id: str, body: CompleteRequest):
     with get_conn() as conn:
-        check_project_active(conn, project_id)
+        conn.execute("BEGIN IMMEDIATE")
+        project = check_project_active(conn, project_id)
         expire_reason_leases(conn, project_id)
         validate_facts_exist(conn, project_id, body.from_)
         validate_goal_not_in_sources(body.from_)
+
+        require_stage_artifacts(conn, project_id)
 
         now = utcnow()
         iid = next_intent_id(conn, project_id)
@@ -287,6 +296,8 @@ def complete_project(project_id: str, body: CompleteRequest):
             (project_id,),
         )
 
+        complete_workflow_stage(conn, project, body.description, body.from_, now)
+
         return Intent(
             id=iid,
             **{"from": body.from_},
@@ -303,6 +314,7 @@ def complete_project(project_id: str, body: CompleteRequest):
 @router.post("/projects/{project_id}/reopen", response_model=ReopenResponse)
 def reopen_project(project_id: str, body: ReopenRequest):
     with get_conn() as conn:
+        require_standalone_project(get_project_or_404(conn, project_id))
         expire_reason_leases(conn, project_id)
         check_project_completed(conn, project_id)
         completion = get_completion_intent_or_409(conn, project_id)
