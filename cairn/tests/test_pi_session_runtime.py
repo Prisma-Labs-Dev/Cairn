@@ -217,11 +217,13 @@ def test_container_stdout_observer_preserves_split_unicode_and_result():
     ('fixture', 'fuzzy', 'fixture fuzzy-substitute 100K 10K yes no\n', 2),
     ('', 'fixture/exact-id', 'fixture exact-id 100K 10K yes no\n', 0),
 ])
-def test_explicit_local_catalog_preflight_is_exact_and_never_calls_a_model(tmp_path, provider, model, catalog, expected):
+@pytest.mark.parametrize('catalog_stream', ['stdout', 'stderr'])
+def test_explicit_local_catalog_preflight_is_exact_and_never_calls_a_model(tmp_path, provider, model, catalog, expected, catalog_stream):
     from cairn.dispatcher.workers.adapters.pi import LOCAL_MODEL_CHECK_SCRIPT
     executable = tmp_path / 'pi'
     calls = tmp_path / 'calls'
-    executable.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$FIXTURE_CALLS"\nprintf "%s" "$FIXTURE_CATALOG"\n')
+    redirect = ' >&2' if catalog_stream == 'stderr' else ''
+    executable.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$FIXTURE_CALLS"\nprintf "%s" "$FIXTURE_CATALOG"' + redirect + '\n')
     executable.chmod(0o755)
     env = {**os.environ, 'PATH': f'{tmp_path}{os.pathsep}{os.environ["PATH"]}',
            'FIXTURE_CALLS': str(calls), 'FIXTURE_CATALOG': catalog}

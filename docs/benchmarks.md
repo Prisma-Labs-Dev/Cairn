@@ -1,7 +1,8 @@
 # Small Cairn comparison suite
 
-Status: setup and offline checker tests only. No model benchmark has run. There are no
-performance results. Sol designs and checks the tests; **Luna executes every benchmark
+Status: nine initial comparison pilots finished. Six passed the strict checker; one
+completed with missing report source links; two workflow attempts reached the token
+limit. See [measured results and limits](benchmark-pi-luna-results-2026-10-27.md). Sol designs and checks the tests; **Luna executes every benchmark
 worker call**, including bootstrap, planning, reason, exploration, conclusion and retries.
 
 The suite compares the original Cairn engine at `8e7e0ea`, this fork as a standalone
@@ -118,28 +119,72 @@ reusing each other's output paths.
 
 ## Pin Luna before any pilot
 
-`benchmarks/dispatch.luna.local.yaml` explicitly selects `model: gpt-6-luna` and
-`reasoning_effort: low` for all task types. Replace its workspace placeholder in an
-external run copy, then check it:
+Use `benchmarks/dispatch.pi-luna.local.yaml` for native Pi with the existing
+`openai-codex` OAuth subscription, exact `gpt-6-luna`, and low effort. API keys are
+not used. Run `preflight.py` after replacing the workspace placeholder. Offline
+catalog routing and live access are separate checks. Stop if the exact model is
+unavailable; do not substitute another model.
+
+For the comparison, `run_matrix.py prepare` makes disposable checkouts of original
+`8e7e0ea67552383851dfcabfba0c4e9c8d007878` and fork
+`f0abdd35e63d649dcfcf36a7abc7d540ef21a0ef`. `transport_patch.py` gives both the
+same benchmark-only local Pi command and managed relative session files. Both use
+original default phase prompt bytes. Fork workflow expansion and context remain
+the treatment. Separate transport and prompt patches, exact revisions and hashes
+are retained. No production scheduler or baseline workflow changes are applied.
+
+The common external transport forces exact provider/model/effort selectors,
+native Pi tools and an attempt-specific session store. Each worker bundle has
+immutable SSE and zero-retry settings before any worker starts. A Node fetch
+observer survives Pi's `undici.install()` replacement, refuses WebSocket
+transport, rejects unsupported provider endpoints, checks the actual request
+model/effort and records safe server response IDs, model and usage. It does not
+record authorization headers or change request payloads. Only the subscription
+responses endpoint and necessary OAuth refresh endpoint are allowed through this
+instrumentation. This does not restrict a worker's host shell or create a security
+boundary.
+
+A synchronous SQLite reservation immediately before each actual subscription
+HTTP request enforces the 24-request cap, including provider retries. Request 24
+may finish; request 25 is refused before fetch. The supervisor separately counts
+CLI invocations and Pi assistant turns. After cap refusal it drains already
+admitted work within the common wall-time and token limits. At time or measured
+token limits, it stops the target and dispatcher and kills remaining worker
+process groups. Any usage unavailable after cancellation remains unknown; token
+overshoot from admitted requests is reported. Cached input is already included
+in total input. Server response usage and Pi response IDs must reconcile before
+usage is called complete.
+
+Prepare and review without model calls:
 
 ```sh
-uv run --project cairn python benchmarks/preflight.py --config /tmp/cairn-pilot-dispatch.yaml
+python3 -m unittest discover -s benchmarks -p 'test_*.py' -v
+python3 benchmarks/run_matrix.py prepare --root /tmp/cairn-pi-matrix \
+  --real-pi /absolute/path/to/pi
 ```
 
-Preflight checks the actual config and adapter commands for both execute and resume,
-CLI flag support and the exact model slug in the local CLI model catalog. It does not
-invoke a model. Cached discovery is not proof of live access. On the setup machine the
-catalog listed `gpt-6-luna`; no live access test has been made. If a future invocation
-rejects that slug, stop and report the failure. Never silently substitute another model
-or allow a worker to inherit the host's default model.
+Review `matrix.json`, both transport patches, both common-prompt patches and live
+transport canary evidence. A launch rechecks the actual disposable HEADs, full
+source diffs, common prompt bytes, worker bundles, instrumentation and copied
+observers. Run each of the nine attempt IDs once after review:
 
-The fork supports optional per-worker model and effort fields. Old Cairn's local adapter
-ignores `CODEX_MODEL` environment variables and inherits host CLI defaults. A baseline
-must therefore receive the same minimal model-routing and usage-recording transport
-patch in a disposable checkout at `8e7e0ea`. Record that exact diff and both revision
-hashes. Do not apply workflow, prompt, scheduler or history changes to the original
-baseline. Until this equivalent transport and accounting are present, the three-way
-comparison is not ready to run.
+```sh
+uv run --project cairn python benchmarks/run_matrix.py run \
+  --root /tmp/cairn-pi-matrix --attempt needle-original --reviewed
+```
+
+Attempt IDs are `<needle|research|inventory>-<original|standalone|workflow>`.
+The runner refuses reuse of an attempt that has started. It preserves the API
+SQLite database, dispatcher/API logs, raw Pi events, genuine Pi session files,
+server metadata, collected workflow bytes and hashes, graph snapshots,
+evaluation errors and full budget/accounting receipts. It evaluates only after
+all workers stop. Workflow outputs come from collected artifacts; a file merely
+present in the shared directory cannot replace a missing collected artifact.
+Review each report against its sources before proceeding. A wrong answer alone
+does not prove fabrication. If a pilot contains fabricated claims or citations,
+enable independent verification by default thereafter and record the policy
+change separately from this frozen comparison. Do not tune or silently rerun a
+pilot after reading its evaluator result.
 
 ## Pilot procedure
 
@@ -156,9 +201,9 @@ including failures. Do not tune prompts for a losing mode after seeing its answe
    workflow may generate up to sixteen goals but receives no extra worker capacity.
 3. Use the template's same per-call timeouts in every mode. Apply a common whole-attempt
    limit of 15 minutes, 24 model invocations and 50,000 measured input-plus-output tokens.
-   These aggregate limits need an external supervisor; the YAML alone does not enforce
-   them, and this setup does not yet include that supervisor. Before a pilot, arrange a
-   process deadline and a watcher of the actual invocation/usage ledger. At a limit,
+   These aggregate limits use `supervisor.py`; the YAML alone does not enforce
+   them. Its atomic pre-fetch gate counts actual subscription HTTP requests, and
+   its watcher counts measured usage and enforces the process deadline. At a limit,
    mark the workflow or project stopped through its status endpoint, then stop the
    dispatcher and verify no worker processes remain. Record any overshoot from
    in-flight calls and count it. Stop on the first limit
@@ -224,5 +269,7 @@ and cleanup. Preserve failed attempts, call count, total input/output/cached tok
 budget hits, semantic pass/fail, citation pass/fail, missing artifacts and human report
 review. A successful attempt is not cheaper if it hides its planning or retries.
 
-There are currently no pilot measurements to populate a results table. Offline fixture
-and schema tests verify setup only; they do not establish a workflow advantage.
+The [initial pilot results](benchmark-pi-luna-results-2026-10-27.md) retain all failures,
+budget overshoots and incomplete usage. One attempt per comparison cell and shared
+provider caches do not establish a general winner. Offline fixture and schema tests
+verify setup only.
