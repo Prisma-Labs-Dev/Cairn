@@ -20,7 +20,7 @@ try:
     with tempfile.TemporaryFile() as catalog:
         subprocess.run(['pi', '--offline', '--no-extensions', '--no-skills',
                         '--no-prompt-templates', '--no-context-files', '--list-models'],
-                       stdout=catalog, stderr=subprocess.DEVNULL, check=True, timeout=15,
+                       stdout=catalog, stderr=subprocess.STDOUT, check=True, timeout=15,
                        env={**os.environ, 'NO_COLOR': '1', 'FORCE_COLOR': '0'})
         catalog.seek(0)
         raw = catalog.read(1048577)

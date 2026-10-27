@@ -69,8 +69,9 @@ Trash](docs/workflow-management.md) preserve results and history.
 - [Independent verification](docs/verification.md), [token usage](docs/usage.md), and
   [workflow management](docs/workflow-management.md) document completion review, accounting,
   and recoverable deletion.
-- [Benchmark procedure](docs/benchmarks.md) defines evaluation setup; no live pilot results
-  are available yet.
+- [Benchmark procedure](docs/benchmarks.md) and [initial Luna pilot results](docs/benchmark-pi-luna-results-2026-10-27.md)
+  record nine live attempts: six strict passes, two capped workflow failures, and one report
+  citation presentation failure.
 - [Worker container](container/README.md) explains the image and its environment instructions.
 - [Current status and limits](STATUS.md) records verification and outstanding boundaries.
 

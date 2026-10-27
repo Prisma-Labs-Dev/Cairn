@@ -61,14 +61,20 @@ resume accounting, and exclusive outbox ownership across processes. The guides
 
 Live HTTP checks exercised a pending completion claim, same-producer review rejection,
 approval before workflow fan-out, Trash hiding and write rejection, and paused restoration.
-These are API/state-transition checks. There has been no live Luna benchmark in this work.
-Fabricated citations in evaluator tests are injected test cases, not observed model behavior.
+These are API/state-transition checks. The separate [live Luna pilot results](docs/benchmark-pi-luna-results-2026-10-27.md)
+record nine attempts: six strict passes, two capped workflow failures, and one report citation
+presentation failure. Seven attempts have fully reconciled usage; two capped attempts remain
+incomplete. Independent agent checks found no fabrication evidence in the observed results,
+so independent verification remains off by default. No human report review or provider invoice
+reconciliation was performed. Fabricated citations in evaluator tests remain injected fixtures.
 Conditional workflow checks covered accepted and pending results, false conditions,
 explicitly permitted absence, empty collections, recorded member results and artifact
 references, restart, and bounded result correction. Local browser fixtures verified JSON
 creation, preservation of advanced fields during revision, negative findings, collection
 readback, and desktop/390px layouts. These fixtures executed no model calls.
-[Benchmark setup](docs/benchmarks.md) has no pilot measurements or demonstrated workflow advantage.
+[Benchmark setup](docs/benchmarks.md) and the initial pilot report preserve the failed attempts,
+cache effects, budget overshoots and incomplete accounting. One attempt per comparison cell
+does not establish a general workflow advantage.
 
 ## Current limits
 

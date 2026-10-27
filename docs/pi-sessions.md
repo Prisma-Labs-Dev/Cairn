@@ -150,11 +150,63 @@ reference encoding, rather than letting Pi reinterpret the original selector aga
 configured or builtin providers. Fuzzy-only, ambiguous, or unavailable IDs fail visibly. Omitted fields retain Pi defaults.
 Container Pi uses its isolated `cairn` provider configuration, with `model` overriding `PI_MODEL`.
 
-The installed Pi 0.78.0 catalog checked during implementation did not contain Luna. This is
-an observed local configuration limit, not proof that no provider can offer it. Configure an
-actual supported Pi provider/model before selecting it. Cairn neither invents a Luna alias nor
-substitutes another model. The existing explicit Codex benchmark route remains available.
-No live Luna benchmark or paid model call was made for this integration.
+Pi 0.78.0 can add the exact Luna ID to its built-in `openai-codex` provider through
+`~/.pi/agent/models.json`. This keeps Pi's native ChatGPT subscription OAuth flow and endpoint.
+A custom catalog entry proves configuration only. Successful authenticated requests and
+measured response usage must establish live access separately.
+
+```json
+{
+  "providers": {
+    "openai-codex": {
+      "models": [{
+        "id": "gpt-6-luna",
+        "name": "GPT-6 Luna",
+        "reasoning": true,
+        "thinkingLevelMap": {"off": null, "minimal": null, "low": "low"},
+        "input": ["text", "image"],
+        "contextWindow": 272000,
+        "maxTokens": 32768
+      }]
+    }
+  }
+}
+```
+
+Merge that entry with existing providers rather than replacing the file. The context value
+comes from the local Codex model catalog; the output value is a conservative catalog setting,
+not a measured server limit or an enforced request budget. No `apiKey`, custom endpoint, token copy, or fallback provider
+belongs in this configuration. Pi stores OAuth in its own private `~/.pi/agent/auth.json`;
+`/login` then **ChatGPT Plus/Pro** establishes or repairs that login, and native Pi refreshes
+its own credentials. Do not commit or include auth files in benchmark captures.
+
+Use [the Pi benchmark template](../benchmarks/dispatch.pi-luna.local.yaml), replacing its
+workspace root with a new isolated directory, then run the routing preflight:
+
+```sh
+uv run --project cairn python benchmarks/preflight.py --config /absolute/path/to/dispatch.yaml
+pi --offline --provider openai-codex --model openai-codex/gpt-6-luna --thinking low \
+  --no-extensions --no-skills --no-prompt-templates --no-themes --no-context-files \
+  --mode json --session /absolute/path/to/proof-session.jsonl -p 'Your bounded test prompt'
+```
+
+Use the same session path on a second print invocation to verify resume. Retain raw JSONL,
+provider error events, tool results and response IDs. Pi's `message.model` is populated from
+the selected local model, so label it configured unless independently observed response
+metadata supplies the server model. Pi usage `input` excludes `cacheRead`; inclusive input
+is their sum. Pi can exit zero with `stopReason: "error"` and zero counters after an auth
+failure. Those counters do not establish measured zero usage or a successful invocation.
+The preflight makes no model calls and deliberately reports live access unverified.
+
+On 2026-10-27 the local Pi 0.78.0 setup passed an authenticated tool-and-resume smoke test
+using its own native OAuth login. Two print invocations read a fixture, wrote the computed
+answer, resumed the same session and read that answer. A separate minimal request captured
+HTTP 200 and server `response.completed.model: "gpt-6-luna"`, with request reasoning `low`.
+Across these three CLI invocations, six provider responses measured 4,202 input tokens,
+107 output tokens and zero cached input tokens. These are setup measurements, not benchmark
+results or billing amounts. Two earlier authentication failures remain recorded separately.
+Raw nonsecret events and the receipt are retained locally under
+`~/.cache/cairn/pi-luna-proof-20261027T2230/`, with totals in `summary.json`.
 
 Pi's current [SDK](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md)
 and [RPC protocol](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc.md)

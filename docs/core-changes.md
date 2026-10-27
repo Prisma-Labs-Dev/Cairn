@@ -161,8 +161,10 @@ Proof is in [usage tests](../cairn/tests/test_usage.py) and
 CLI streams, real harmless subprocesses, resume deltas, unknown-versus-zero fields,
 multimodel readings, duplicate replay, and separate-process lock recovery. See
 [Token usage](usage.md) for exact field meanings, supported formats, API, and limitations.
-No live model benchmark or provider invoice reconciliation has established coverage beyond
-those implementation and fixture checks.
+The [initial live Luna pilots](benchmark-pi-luna-results-2026-10-27.md) add Pi/server usage
+evidence: seven attempts fully reconcile and two capped attempts retain incomplete accounting.
+They do not establish live coverage for every supported provider. Billing amounts, subscription
+credit consumption and provider invoices were not measured or reconciled.
 
 ## Optional independent completion verification
 
@@ -204,8 +206,11 @@ Proof is in [verification API tests](../cairn/tests/test_verification.py) and
 pending completion, fresh execution, self-review guards, leases, immutable evidence,
 approval/rejection, concurrency, and bounded recovery. The [verification guide](verification.md)
 has the current request fields and operational limits. Fabrication cases in evaluator tests
-are deliberately injected fixtures. There has been no live Luna benchmark or observed Luna
-fabrication in this work.
+are deliberately injected fixtures. The [initial live Luna pilots](benchmark-pi-luna-results-2026-10-27.md)
+record nine attempts: six strict passes, two capped workflow failures, and one report citation
+presentation failure. Independent agent checks found no fabrication evidence in the observed
+results, so the default remains off. This is not a general claim about model honesty, and no
+human report review was performed.
 
 ## Declared workflow result fields in worker completion
 
