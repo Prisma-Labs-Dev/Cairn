@@ -17,7 +17,9 @@ Changes to the original engine are recorded in [Core changes](docs/core-changes.
 - Durable binary artifact downloads, hashes, sizes, and retained workflow working files.
 - Workflow creation, progress, completion summaries, stop/resume, and stage graph navigation.
 - Goal-only project creation, JSON/YAML workflow files, and agent-editable optional metadata.
-- Explicit goal expansion into bounded generated stages before later work continues.
+- Explicit goal expansion into bounded generated stages, using all goals or ranked choose-one fallback.
+- Unavailable options advance to the next candidate; retries create fresh attempts and retain earlier evidence.
+- A [workflow authoring guide](docs/workflow-authoring.md) for chains, joins, generated goals, and ranked choices.
 - Live runtime concurrency overrides, dispatcher freshness, and worker pool capacity in the UI.
 - Optional independent completion review, off by default, with frozen evidence and bounded rework.
 - CLI-reported token usage by model and invocation, explicit coverage, durable outbox, and reporter health.
@@ -63,8 +65,9 @@ Fabricated citations in evaluator tests are injected test cases, not observed mo
 ## Current limits
 
 Existing stage definitions remain fixed, but explicitly expandable stages may generate
-bounded follow-up goals. Nested reusable workflows and conditional branches are not
-implemented. Layers are labels over a dependency graph. Runtime caps apply independently
+bounded follow-up goals. Choose-one expansion tries ranked options until one succeeds, including
+unavailable outcomes and fresh retries. A general conditional-expression language and nested
+reusable workflows are not implemented. Layers are labels over a dependency graph. Runtime caps apply independently
 per dispatcher, not across all processes sharing a server.
 Artifacts use distinct output paths across the workflow, up to 10 MiB each, at most 32 declared per stage. File presence is
 checked; semantic correctness still depends on the agent and explicit review stages.
