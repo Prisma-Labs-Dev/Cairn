@@ -49,6 +49,27 @@ def _filters(since: datetime | None, until: datetime | None, project_id: str | N
     return " AND ".join(clauses) or "1=1", values, normalized
 
 
+SESSION_COVERAGE_LIMIT = 25
+
+
+def _session_coverage(conn, where, params):
+    # Pi capture and usage share the exact invocation UUID. Count only known
+    # registrations, without reading transcript bytes or JSON payload columns.
+    missing = "NOT EXISTS (SELECT 1 FROM usage_attempts u WHERE u.attempt_id=a.id AND u.project_id=a.project_id)"
+    counts = conn.execute(
+        "SELECT COUNT(*) AS known, COALESCE(SUM(" + missing + "),0) AS missing "
+        "FROM agent_invocations a WHERE " + where, params,
+    ).fetchone()
+    rows = conn.execute(
+        "SELECT a.id AS invocation_id,a.project_id,a.workflow_id,a.started_at "
+        "FROM agent_invocations a WHERE (" + where + ") AND " + missing +
+        " ORDER BY a.started_at DESC,a.id DESC LIMIT ?", (*params, SESSION_COVERAGE_LIMIT),
+    ).fetchall()
+    return {"known_pi_invocations": counts["known"], "missing_usage_attempts": counts["missing"],
+            "missing_usage_items": [dict(row) for row in rows], "limit": SESSION_COVERAGE_LIMIT,
+            "has_more": counts["missing"] > SESSION_COVERAGE_LIMIT}
+
+
 def usage_summary(conn: sqlite3.Connection, since=None, until=None, project_id=None) -> dict:
     where, params, window = _filters(since, until, project_id)
     counts = conn.execute("SELECT COUNT(*) AS attempts, SUM(a.coverage='reported') AS reported_attempts, SUM(a.coverage='partial') AS partial_attempts, SUM(a.coverage='unreported') AS unreported_attempts "
@@ -73,7 +94,8 @@ def usage_summary(conn: sqlite3.Connection, since=None, until=None, project_id=N
     phases = conn.execute(f"SELECT phase,COUNT(*) AS attempts FROM usage_attempts a WHERE {where} GROUP BY phase", params).fetchall()
     reporters = [dict(row) for row in conn.execute("SELECT * FROM usage_reporters ORDER BY last_seen DESC")]
     return {"window": window, "totals": totals, "models": models, "phase_attempts": {row["phase"]: row["attempts"] for row in phases},
-            "reporting": {"scope": "all_reporters_latest_state", "reporters": reporters}}
+            "reporting": {"scope": "all_reporters_latest_state", "reporters": reporters},
+            "session_coverage": _session_coverage(conn, where, params)}
 
 
 def usage_attempts(conn: sqlite3.Connection, since=None, until=None, project_id=None, offset=0, limit=25) -> dict:

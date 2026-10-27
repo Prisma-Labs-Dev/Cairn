@@ -292,3 +292,66 @@ index b2afbea..af3edc2 100644
  <BtwPopup {cwd} parentId={sessionId} />
  <svelte:element this={"script"} id="session-data" type="application/json" bind:this={dataEl}
  ></svelte:element>
+diff --git a/web/src/components/session/ModelUsageModal.svelte b/web/src/components/session/ModelUsageModal.svelte
+index 4ba075d..5bf194a 100644
+--- a/web/src/components/session/ModelUsageModal.svelte
++++ b/web/src/components/session/ModelUsageModal.svelte
+@@ -130,8 +130,8 @@
+   bodyClass="mu-sheet-body"
+ >
+   <div class="mu-section">
+-    <div class="mu-label">Total cost</div>
+-    <div class="mu-cost">{formatCost(totalCost)}</div>
++    <div class="mu-label">Billing</div>
++    <p>Not measured. Catalog prices do not establish subscription charges.</p>
+   </div>
+
+   {#if tokenRows.length > 0}
+diff --git a/web/src/components/session/ModelUsageModal.test.js b/web/src/components/session/ModelUsageModal.test.js
+index 5c2adfc..e6f9d0f 100644
+--- a/web/src/components/session/ModelUsageModal.test.js
++++ b/web/src/components/session/ModelUsageModal.test.js
+@@ -57,11 +57,13 @@ async function open(entries) {
+ }
+
+ describe('ModelUsageModal', () => {
+-  it('renders computed cost, token, model, and tool-call stats', async () => {
++  it('hides catalog dollar estimates while retaining token, model, and tool-call stats', async () => {
+     await open(mockEntries);
+     const text = document.querySelector('.pi-sheet-body').textContent;
+-    expect(text).toContain('Total cost');
+-    expect(text).toContain('$0.037');
++    expect(text).toContain('Billing');
++    expect(text).toContain('Not measured. Catalog prices do not establish subscription charges.');
++    expect(text).not.toContain('Total cost');
++    expect(text).not.toContain('$0.037');
+     expect(text).toContain('Input');
+     expect(text).toContain('Output');
+     expect(text).toContain('9.0k');
+diff --git a/web/src/components/session/SessionInfoHeader.svelte b/web/src/components/session/SessionInfoHeader.svelte
+index 75a318a..a54c9ab 100644
+--- a/web/src/components/session/SessionInfoHeader.svelte
++++ b/web/src/components/session/SessionInfoHeader.svelte
+@@ -115,7 +115,7 @@
+       <span class="info-label">Tokens:</span><span class="info-value">{stats.tokensText}</span>
+     </div>
+     <div class="info-item">
+-      <span class="info-label">Cost:</span><span class="info-value">{stats.costText}</span>
++      <span class="info-label">Billing:</span><span class="info-value">Not measured</span>
+     </div>
+   </div>
+ </div>
+diff --git a/web/src/components/session/SessionInfoHeader.test.js b/web/src/components/session/SessionInfoHeader.test.js
+index 3638362..2c88335 100644
+--- a/web/src/components/session/SessionInfoHeader.test.js
++++ b/web/src/components/session/SessionInfoHeader.test.js
+@@ -38,6 +38,9 @@ describe('SessionInfoHeader', () => {
+     // messages summary reflects the entries
+     expect(container.textContent).toContain('1 user, 1 assistant');
+     expect(container.textContent).toContain('↑1.2k');
++    expect(container.textContent).toContain('Billing:Not measured');
++    expect(container.textContent).not.toContain('Cost:');
++    expect(container.textContent).not.toContain('$0.000');
+   });
+
+   it('renders an expandable system prompt and toggles on click', async () => {

@@ -161,6 +161,12 @@ Proof is in [usage tests](../cairn/tests/test_usage.py) and
 CLI streams, real harmless subprocesses, resume deltas, unknown-versus-zero fields,
 multimodel readings, duplicate replay, and separate-process lock recovery. See
 [Token usage](usage.md) for exact field meanings, supported formats, API, and limitations.
+The usage summary also compares known Pi session invocation IDs with matching ledger rows,
+under the same date/project filters. It exposes a missing-record count and at most 25
+metadata links without reading transcripts or inventing token/model values. Later usage
+replay clears the exact gap; existing totals remain sums of reported counters. Regression
+coverage is in [session usage coverage tests](../cairn/tests/test_usage_session_coverage.py).
+
 The [initial live Luna pilots](benchmark-pi-luna-results-2026-10-27.md) add Pi/server usage
 evidence: seven attempts fully reconcile and two capped attempts retain incomplete accounting.
 They do not establish live coverage for every supported provider. Billing amounts, subscription

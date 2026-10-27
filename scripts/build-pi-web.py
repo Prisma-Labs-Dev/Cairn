@@ -38,6 +38,9 @@ def main():
         # Install only the frontend lockfile. Root postinstall would configure
         # autostart and must never run in Cairn's viewer build.
         run('npm', '--prefix', 'web', 'ci', '--ignore-scripts', cwd=source)
+        run('npm', '--prefix', 'web', 'run', 'test', '--',
+            'src/components/session/SessionInfoHeader.test.js',
+            'src/components/session/ModelUsageModal.test.js', cwd=source)
         run('npm', '--prefix', 'web', 'run', 'build', cwd=source)
         run('go', 'test', './internal/app', './internal/server', '-run', 'TestCairn', '-count=1', cwd=source)
         args.output = args.output.expanduser().resolve()

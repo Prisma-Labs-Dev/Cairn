@@ -10,6 +10,15 @@ Selecting a graph record filters through stored IDs, including source facts and 
 result facts or intents. Earlier choice attempts keep their original project/stage association.
 Pause and recoverable Trash retain this history.
 
+Activity groups streamed message fragments into the latest message preview and combines each
+tool's start, partial output and finish. **Show raw events** restores the captured event order.
+The sequence range identifies the loaded window, which retains at most 100 raw events;
+**Load earlier activity** and **Latest activity** move through it. This is a bounded activity
+preview, not full conversation history. Open the saved Pi conversation for that history.
+Capture limits and unavailable bytes remain explicit. On phones the invocation list collapses
+after selection and can be reopened with **Choose another invocation**. Graph links and the
+three session identifiers remain under **Graph links and session IDs**.
+
 Each process has an invocation ID matching its usage-ledger UUID. Execute and same-session
 conclude share one Cairn conversation ID, but have separate invocation records and events.
 The original Pi header ID is stored separately and shown as **Pi session ID**. Cairn never
@@ -28,7 +37,8 @@ uv run --project cairn cairn dispatch --config dispatch.local.example.yaml
 The build checks out [pi-web](https://github.com/ygncode/pi-web) at
 [`4a77ea5d662b2ef4fa20563b90dac823581614b7`](https://github.com/ygncode/pi-web/tree/4a77ea5d662b2ef4fa20563b90dac823581614b7),
 applies the checked-in [read-only patch](../vendor/pi-web/readonly.patch), builds its frontend
-from the upstream lockfile, runs the patch's route-denial tests, and builds its Go executable.
+from the upstream lockfile, runs the billing-display component and route-denial tests, and
+builds its Go executable.
 The upstream MIT [license](../vendor/pi-web/LICENSE) is retained. Nothing installs a Pi
 extension, launch agent, global service, or Tailscale configuration. npm lifecycle scripts are
 disabled during dependency installation. Rebuild after changing the pin or patch.
@@ -65,6 +75,11 @@ mtime fallback cannot claim a worker is running. Cairn's invocation records own 
 comment keepalives, use a finite ten-second upstream read timeout, and explicitly close
 the upstream response on browser disconnect so idle tabs cannot strand the server child.
 The viewer remains a local source viewer; it is not an independent authentication system.
+
+The read-only viewer shows **Billing: Not measured** instead of dollar estimates in the
+session header and Usage sheet. Custom catalog prices, including zero prices, do not
+establish subscription charges or credit consumption. Token displays and original JSONL
+cost metadata remain unchanged; the viewer does not invent billing rates.
 
 ## Frontend dependency audit
 
