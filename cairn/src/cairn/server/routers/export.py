@@ -5,7 +5,8 @@ import yaml
 
 from cairn.server.db import get_conn
 from cairn.server.services import expire_reason_leases, expire_workers, get_project_or_404
-from cairn.server.workflow_service import workflow_detail
+from cairn.server.artifact_service import list_artifacts
+from cairn.server.workflow_context import history_index_url
 
 router = APIRouter(tags=["export"])
 
@@ -69,18 +70,18 @@ def _export_yaml(conn, project_id: str) -> str:
     }
 
     if proj["workflow_id"]:
-        workflow = workflow_detail(conn, proj["workflow_id"])
-        stage = next(stage for stage in workflow.stages if stage.id == proj["workflow_stage_id"])
+        import json
+        stage = conn.execute("SELECT definition_json FROM workflow_stages WHERE project_id = ?", (project_id,)).fetchone()
+        definition = json.loads(stage["definition_json"])
         data["workflow"] = {
             "id": proj["workflow_id"],
-            "stage_id": stage.id,
-            "kind": stage.kind,
-            "layer": stage.layer,
-            "depends_on": stage.depends_on,
+            "stage_id": proj["workflow_stage_id"],
+            "kind": definition.get("kind", "work"),
+            "layer": definition.get("layer"),
             "shared_workspace_id": proj["workflow_id"],
-            "required_artifacts": [artifact.model_dump() for artifact in stage.artifacts],
-            "collected_artifacts": [artifact.model_dump() for artifact in stage.collected_artifacts],
-            "handoffs": [handoff.model_dump(by_alias=True) for handoff in stage.handoffs],
+            "required_artifacts": definition.get("artifacts", []),
+            "collected_artifacts": [artifact.model_dump() for artifact in list_artifacts(conn, project_id)],
+            "history_index_url": history_index_url(project_id),
         }
 
     if hints:

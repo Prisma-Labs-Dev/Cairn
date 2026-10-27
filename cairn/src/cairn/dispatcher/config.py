@@ -5,6 +5,7 @@ import json
 from importlib import resources
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -171,6 +172,18 @@ class RuntimeConfig(BaseModel):
     worker_healthcheck: WorkerHealthcheckMode = "startup_only"
     execution: ExecutionMode = "container"
     prompt_group: str = Field(min_length=1)
+    history_server_url: str | None = None
+
+    @field_validator("history_server_url")
+    @classmethod
+    def validate_history_server_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        parts = urlsplit(value)
+        if (parts.scheme not in ("http", "https") or not parts.hostname
+                or parts.query or parts.fragment or parts.username or parts.password):
+            raise ValueError("history_server_url must be an HTTP(S) base URL without credentials, query or fragment")
+        return value.rstrip("/")
 
 
 class WorkerConfig(BaseModel):

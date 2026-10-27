@@ -6,7 +6,8 @@ single-goal exploration engine. Upstream base: `oritera/Cairn` at `8e7e0ea`.
 ## What works
 
 - Chains, parallel branches, joins, and stage grouping by layer label.
-- Separate goals and fact graphs for stages, with inherited findings and artifact provenance.
+- Separate goals and fact graphs for stages, with optional earlier findings and artifact provenance.
+- Reference-only handoffs and selective historical reads, without copying the full prior context.
 - Goal-only, artifact-only, and combined stages.
 - Required output collection before stage completion; missing outputs create corrective work.
 - Automatic artifact recovery pauses the workflow after three unsuccessful attempts.
@@ -25,7 +26,8 @@ CLIs must already be configured and signed in. Open `http://127.0.0.1:8000` and 
 
 The regression suite covers DAG validation, concurrent joins, pause/resume, restart,
 shared workspace retention, binary artifact capture/download, missing-output recovery,
-and existing standalone projects. All 141 tests pass locally. Run
+bounded default context, optional source retrieval, legacy context migration, and existing
+standalone projects. Run
 `uv run --project cairn --group dev pytest`.
 
 Browser checks covered workflow creation, artifact-only stages, stage progress, output

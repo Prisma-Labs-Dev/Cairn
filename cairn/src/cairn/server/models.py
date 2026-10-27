@@ -360,12 +360,10 @@ class StageCompletion(BaseModel):
 class StageHandoff(BaseModel):
     stage_id: str
     project_id: str
-    completion_description: str
-    from_: list[str] = Field(alias="from")
-    facts: list[Fact]
-    artifacts: list[ArtifactRecord] = Field(default_factory=list)
-
-    model_config = {"populate_by_name": True}
+    fact_count: int
+    intent_count: int
+    artifact_count: int
+    context_url: str
 
 
 class WorkflowStage(WorkflowStageDefinition):
@@ -376,6 +374,7 @@ class WorkflowStage(WorkflowStageDefinition):
     collected_artifacts: list[ArtifactRecord] = Field(default_factory=list)
     artifact_recovery_attempts: int = Field(default=0, ge=0)
     artifact_error: str | None = None
+    history_index_url: str | None = None
 
 
 class WorkflowDetail(BaseModel):

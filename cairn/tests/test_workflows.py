@@ -65,14 +65,18 @@ def test_chain_unlocks_lazily_and_preserves_provenance(client):
     assert first["completion"]["from"] == ["f001"]
     assert second["status"] == "active" and third["status"] == "blocked"
     handoff = second["handoffs"][0]
-    assert handoff["project_id"] == project_id and handoff["from"] == ["f001"]
-    assert {fact["id"]: fact["description"] for fact in handoff["facts"]}["f001"] == evidence
+    assert handoff["project_id"] == project_id and handoff["fact_count"] == 3
+    assert "facts" not in handoff and "completion_description" not in handoff
     inherited_project = client.get(f"/projects/{second['project_id']}").json()
     assert inherited_project["project"]["workflow_id"] == workflow_id
-    assert f"{project_id}/f001" in inherited_project["facts"][-1]["description"]
-    assert any(evidence in hint["content"] for hint in inherited_project["hints"])
+    assert [fact["id"] for fact in inherited_project["facts"]] == ["origin", "goal"]
+    assert not any(evidence in hint["content"] for hint in inherited_project["hints"])
+    source = client.get(f"{handoff['context_url']}/facts/f001").json()
+    assert source["description"] == evidence
+    assert client.get(f"{handoff['context_url']}/completion").json()["from"] == ["f001"]
     exported = yaml.safe_load(client.get(f"/projects/{second['project_id']}/export").text)
-    assert exported["workflow"]["handoffs"] == second["handoffs"]
+    assert "handoffs" not in exported["workflow"]
+    assert exported["workflow"]["history_index_url"] == second["history_index_url"]
     assert _complete(client, project_id).status_code == 403  # no duplicate successor
     assert _complete(client, second["project_id"]).status_code == 200
     third = _detail(client, workflow_id)["stages"][2]
