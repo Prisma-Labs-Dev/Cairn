@@ -42,7 +42,8 @@ explanations, and artifact downloads.
 
 See [Staged workflows](docs/workflows.md) for the creation flow, a research-to-manuscript
 example, API usage, file retention, and current limits. Existing single-project runs still work.
-For agents, [JSON/YAML creation](docs/agent-creation.md) supports goal-only projects and
+For agents, start with [Writing workflows](docs/workflow-authoring.md) to choose the right
+dependencies, alternatives, and recovery behavior. [JSON/YAML creation](docs/agent-creation.md) supports goal-only projects and
 stage-only workflow definitions. Titles and starting context are optional.
 Expandable stages can discover new goals for Cairn to execute before later stages continue.
 [Runtime controls](docs/runtime-controls.md) expose concurrency limits, connected dispatchers,
@@ -54,6 +55,8 @@ Trash](docs/workflow-management.md) preserve results and history.
 
 ## Documentation
 
+- [Writing workflows for agents](docs/workflow-authoring.md) is the self-contained starting
+  point for goals, constraints, parallel requirements, ranked choices, examples, and validation.
 - [Core changes](docs/core-changes.md) records changes to the original engine against upstream
   `8e7e0ea`, separate from the workflow extensions.
 - [Server protocol](docs/specs/server-protocol.md) and [dispatcher design](docs/specs/dispatcher-design.md)

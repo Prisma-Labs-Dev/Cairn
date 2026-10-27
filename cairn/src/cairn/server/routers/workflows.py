@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Query
 
 from cairn.server.db import get_conn
-from cairn.server.models import CreateWorkflowRequest, UpdateProjectStatusRequest, UpdateMetadataRequest, WorkflowDetail, WorkflowSummary, Fact, Hint, Intent, StageCompletion
+from cairn.server.models import RetryChoiceRequest, CreateWorkflowRequest, UpdateProjectStatusRequest, UpdateMetadataRequest, WorkflowDetail, WorkflowSummary, Fact, Hint, Intent, StageCompletion
 from cairn.server.artifact_models import ArtifactRecord
 from cairn.server import workflow_context
 from cairn.server.workflow_service import (
@@ -102,3 +102,11 @@ def history_completion(project_id: str, stage_id: str):
 def history_artifacts(project_id: str, stage_id: str):
     with get_conn() as conn:
         return workflow_context.history_artifacts(conn, project_id, stage_id)
+
+
+@router.post("/workflows/{workflow_id}/choices/{parent_id}/retry", response_model=WorkflowDetail)
+def retry_choice_option(workflow_id: str, parent_id: str, body: RetryChoiceRequest):
+    from cairn.server.choice_service import retry_choice
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        return retry_choice(conn, workflow_id, parent_id, body)

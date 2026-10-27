@@ -34,6 +34,7 @@ class GoalExpansion(BaseModel):
     model_config = {"extra": "forbid"}
 
     max_goals: int = Field(default=16, ge=1, le=64, strict=True)
+    mode: Literal["all", "one"] = "all"
 
 
 class GeneratedGoalDefinition(BaseModel):
@@ -128,6 +129,7 @@ class ProjectDetail(BaseModel):
     hints: list[Hint]
     required_artifacts: list[ArtifactRequirement] = Field(default_factory=list)
     expansion: GoalExpansion | None = None
+    choice_option: bool = False
 
 
 class CreateHintInline(BaseModel):
@@ -256,6 +258,8 @@ class CompleteRequest(BaseModel):
     producer_agent_id: str | None = Field(default=None, min_length=1, max_length=200, pattern=r"\S")
     producer_session_id: str | None = Field(default=None, min_length=1, max_length=200, pattern=r"\S")
     goals: list[GeneratedGoalDefinition] | None = Field(default=None, max_length=64)
+    selected_goal: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"\S")
+    selection_reason: str | None = Field(default=None, min_length=1, max_length=8_000, pattern=r"\S")
 
     model_config = {"populate_by_name": True}
 
@@ -458,6 +462,8 @@ class StageCompletion(BaseModel):
     from_: list[str] = Field(alias="from")
     completed_at: str
     goals: list[GeneratedGoalDefinition] | None = None
+    selected_goal: str | None = None
+    selection_reason: str | None = None
 
     model_config = {"populate_by_name": True}
 
@@ -484,6 +490,31 @@ class WorkflowStage(WorkflowStageDefinition):
     generated_by_stage_id: str | None = None
     expansion_recovery_attempts: int = Field(default=0, ge=0)
     expansion_error: str | None = None
+    option_state: Literal["pending", "selected", "succeeded", "unavailable", "skipped"] | None = None
+    option_reason: str | None = None
+    option_history: list[dict] = Field(default_factory=list)
+    choice_error: str | None = None
+    choice_satisfied: bool | None = None
+
+
+class UnavailableRequest(BaseModel):
+    model_config = {"extra": "forbid", "populate_by_name": True}
+    from_: list[str] = Field(alias="from", min_length=1, max_length=64)
+    description: str = Field(min_length=1, max_length=8_000, pattern=r"\S")
+    worker: str = Field(min_length=1, max_length=200, pattern=r"\S")
+
+    @field_validator("from_")
+    @classmethod
+    def validate_sources(cls, value):
+        if any(not item.strip() for item in value) or len(set(value)) != len(value):
+            raise ValueError("Evidence references must be nonblank and unique")
+        return value
+
+
+class RetryChoiceRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    goal_id: str = Field(min_length=1, max_length=64, pattern=r"\S")
+    reason: str = Field(min_length=1, max_length=8_000, pattern=r"\S")
 
 
 class WorkflowDetail(BaseModel):

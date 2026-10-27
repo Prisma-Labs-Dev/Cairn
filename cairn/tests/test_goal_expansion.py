@@ -46,8 +46,8 @@ def test_discover_children_parallel_join_and_exactly_once_retry(client):
     workflow = create(client)
     parent_id = workflow["stages"][0]["project_id"]
     project = client.get(f"/projects/{parent_id}").json()
-    assert project["expansion"] == {"max_goals": 2}
-    assert yaml.safe_load(client.get(f"/projects/{parent_id}/export").text)["workflow"]["expansion"] == {"max_goals": 2}
+    assert project["expansion"] == {"max_goals": 2, "mode": "all"}
+    assert yaml.safe_load(client.get(f"/projects/{parent_id}/export").text)["workflow"]["expansion"] == {"max_goals": 2, "mode": "all"}
     goals = [{"goal": "Investigate alpha"}, {"id": "beta", "goal": "Investigate beta", "kind": "research"}]
     response = finish(client, parent_id, goals=goals)
     assert response.status_code == 200

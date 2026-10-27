@@ -54,10 +54,8 @@ def _history_scope(conn: sqlite3.Connection, requesting_project_id: str) -> tupl
     project = get_project_or_404(conn, requesting_project_id)
     if project["workflow_id"] is None:
         raise HTTPException(404, "Project has no workflow history")
-    stage = conn.execute(
-        "SELECT history_stage_ids_json FROM workflow_stages WHERE project_id = ? AND workflow_id = ?",
-        (requesting_project_id, project["workflow_id"]),
-    ).fetchone()
+    from cairn.server.choice_service import stage_attempt
+    stage = stage_attempt(conn, requesting_project_id)
     if stage is None:
         raise HTTPException(404, "Workflow stage not found")
     return project["workflow_id"], json.loads(stage["history_stage_ids_json"])

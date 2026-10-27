@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from cairn.server.artifact_service import list_artifacts
+from cairn.server.choice_service import is_choice, choice_satisfied, record_option_event, finish_selected_option
 from cairn.server.models import (
     CreateWorkflowRequest, StageCompletion, WorkflowDetail,
     WorkflowMeta, WorkflowStage, WorkflowStageDefinition, WorkflowSummary, UpdateMetadataRequest,
@@ -48,6 +49,9 @@ def workflow_detail(conn: sqlite3.Connection, workflow_id: str) -> WorkflowDetai
             generated_by_stage_id=row["generated_by_stage_id"],
             expansion_recovery_attempts=row["expansion_recovery_attempts"],
             expansion_error=row["expansion_error"],
+            option_state=row["option_state"], option_reason=row["option_reason"],
+            option_history=json.loads(row["option_history_json"]), choice_error=row["choice_error"],
+            choice_satisfied=choice_satisfied(conn, workflow_id, row["id"]) if is_choice(row) else None,
         ))
     return WorkflowDetail(workflow=WorkflowMeta(**dict(workflow)), stages=stages)
 
@@ -57,7 +61,8 @@ def workflow_summaries(conn: sqlite3.Connection, *, trashed: bool = False) -> li
     # definitions or artifact records just to show workflow progress.
     rows = conn.execute("""
         SELECT w.id, w.title, w.origin, w.status, w.created_at, w.deleted_at,
-               COUNT(s.id) AS stage_count,
+               SUM(CASE WHEN s.option_state IN ('pending','unavailable','skipped') THEN 0 ELSE 1 END)
+               + SUM(CASE WHEN s.choice_error IS NOT NULL THEN 1 ELSE 0 END) AS stage_count,
                SUM(CASE WHEN p.status = 'completed' THEN 1 ELSE 0 END) AS completed_stage_count,
                SUM(CASE WHEN p.status = 'active' THEN 1 ELSE 0 END) AS active_stage_count
         FROM workflows w
@@ -103,12 +108,21 @@ def _activate_stage(
         conn.execute("INSERT INTO facts (id, project_id, description) VALUES (?, ?, ?)",
                      (fact_id, project_id, description))
     hints = [stage_instructions(workflow["id"], definition), history_pointer(project_id)]
+    if row["option_state"] == "selected":
+        hints.append("This is the selected choice option. Preserve its goal and hard constraints. "
+                     "If evidence shows this option cannot achieve its goal, report unavailable with evidence references "
+                     "and the unmet goal; do not claim completion. Selection: " + (row["option_reason"] or "")
+                     + f" Optional earlier unavailable attempts and evidence references: /projects/{project_id}/choice-history. "
+                     "The optional history reader supports choice-list and choice-fact SOURCE_PROJECT FACT_ID. "
+                     "Read only if useful; no history read is required to begin.")
     if definition.expansion:
         hints.append(
             f"This stage may generate at most {definition.expansion.max_goals} independent follow-up goals. "
             "At actual completion include an explicit goals array in the complete object, even if empty. "
             "Each item requires a concise goal and may specify id, title, kind, bootstrap_enabled, and artifacts. "
-            "Do not supply dependencies or further expansion. The server creates the parallel stages and joins."
+            "Do not supply dependencies or further expansion. "
+            + ("Mode one requires ranked alternatives, selected_goal, and selection_reason; only one option runs."
+               if definition.expansion.mode == "one" else "All proposed goals are required and run in parallel.")
         )
     if definition.artifacts:
         paths = ", ".join(artifact.path for artifact in definition.artifacts)
@@ -136,36 +150,50 @@ def advance_workflow(conn: sqlite3.Connection, workflow_id: str) -> None:
     workflow = get_workflow(conn, workflow_id)
     if workflow["status"] != "active" or workflow["deleted_at"] is not None:
         return
-    rows = conn.execute(
-        "SELECT id, project_id, definition_json, completion_json IS NOT NULL AS completed "
-        "FROM workflow_stages WHERE workflow_id = ? ORDER BY position", (workflow_id,),
-    ).fetchall()
+    rows = conn.execute("SELECT * FROM workflow_stages WHERE workflow_id = ? ORDER BY position", (workflow_id,)).fetchall()
     by_id = {row["id"]: row for row in rows}
-    if all(row["completed"] for row in rows):
+    def satisfied(row):
+        return bool(row["completion_json"]) and (not is_choice(row) or choice_satisfied(conn, workflow_id, row["id"]))
+    for row in rows:
+        if row["choice_error"]:
+            set_workflow_status(conn, workflow_id, "stopped")
+            return
+    required = [row for row in rows if row["option_state"] not in ("pending", "unavailable", "skipped")]
+    if all(satisfied(row) for row in required):
         conn.execute("UPDATE workflows SET status = 'completed' WHERE id = ?", (workflow_id,))
         return
     for row in rows:
-        if row["project_id"] is not None:
+        if row["project_id"] is not None or row["option_state"] in ("pending", "unavailable", "skipped"):
             continue
         definition = WorkflowStageDefinition.model_validate_json(row["definition_json"])
-        if all(by_id[dependency]["completed"] for dependency in definition.depends_on):
+        def dependency_ready(dependency):
+            source = by_id[dependency]
+            # A selected option starts from discovery's raw completion. Other
+            # successors wait until that discovery's choice has actually succeeded.
+            if row["option_state"] == "selected" and row["generated_by_stage_id"] == dependency:
+                return bool(source["completion_json"])
+            return satisfied(source)
+        if all(dependency_ready(dependency) for dependency in definition.depends_on):
             _activate_stage(conn, workflow, row, definition,
                             [by_id[dependency] for dependency in definition.depends_on],
-                            [source["id"] for source in rows if source["completed"]])
+                            [source["id"] for source in rows if source["completion_json"]])
 
 
 def complete_workflow_stage(
     conn: sqlite3.Connection, project: sqlite3.Row, description: str, from_ids: list[str], now: str,
-    goals: list[GeneratedGoalDefinition] | None = None,
+    goals: list[GeneratedGoalDefinition] | None = None, selected_goal: str | None = None,
+    selection_reason: str | None = None,
 ) -> None:
     if project["workflow_id"] is None:
         return
     completion = StageCompletion(project_id=project["id"], description=description,
-                                 from_=from_ids, completed_at=now, goals=goals)
+                                 from_=from_ids, completed_at=now, goals=goals,
+                                 selected_goal=selected_goal, selection_reason=selection_reason)
     conn.execute(
         "UPDATE workflow_stages SET completion_json = ? WHERE workflow_id = ? AND id = ?",
         (completion.model_dump_json(by_alias=True), project["workflow_id"], project["workflow_stage_id"]),
     )
+    finish_selected_option(conn, project, description)
     advance_workflow(conn, project["workflow_id"])
 
 
@@ -174,6 +202,8 @@ def set_workflow_status(conn: sqlite3.Connection, workflow_id: str, status: str)
     workflow = require_workflow_writable(conn, workflow_id)
     if workflow["status"] == "completed":
         raise HTTPException(409, "Completed workflows cannot change status")
+    if status == "active" and conn.execute("SELECT 1 FROM workflow_stages WHERE workflow_id=? AND choice_error IS NOT NULL", (workflow_id,)).fetchone():
+        raise HTTPException(409, "A choice is exhausted. Retry an unavailable option with new circumstances or create a revised workflow before resuming.")
     if workflow["status"] == "stopped" and status == "active":
         conn.execute(
             "UPDATE workflow_stages SET artifact_recovery_attempts = 0, artifact_error = NULL, "
@@ -183,7 +213,8 @@ def set_workflow_status(conn: sqlite3.Connection, workflow_id: str, status: str)
         )
     conn.execute("UPDATE workflows SET status = ? WHERE id = ?", (status, workflow_id))
     projects = conn.execute(
-        "SELECT id FROM projects WHERE workflow_id = ? AND status != 'completed'", (workflow_id,),
+        "SELECT p.id FROM projects p JOIN workflow_stages s ON s.project_id=p.id "
+        "WHERE p.workflow_id = ? AND p.status != 'completed' AND (s.option_state IS NULL OR s.option_state='selected')", (workflow_id,),
     ).fetchall()
     for project in projects:
         conn.execute("UPDATE projects SET status = ? WHERE id = ?", (status, project["id"]))
@@ -242,10 +273,13 @@ def _generated_goal_id(parent_id: str, index: int) -> str:
 
 def append_generated_goals(
     conn: sqlite3.Connection, project: sqlite3.Row, goals: list[GeneratedGoalDefinition] | None,
+    selected_goal: str | None = None, selection_reason: str | None = None,
 ) -> None:
     """Validate the combined DAG and append in the caller's completion transaction."""
     expansion = expansion_for_project(conn, project["id"])
     if expansion is None:
+        if selected_goal is not None or selection_reason is not None:
+            raise HTTPException(409, "Selection fields require expansion mode one")
         if goals:
             raise HTTPException(409, "This stage does not permit generated goals")
         return
@@ -256,7 +290,16 @@ def append_generated_goals(
     if conn.execute("SELECT 1 FROM intents WHERE project_id = ? AND creator = 'goal-expansion' AND concluded_at IS NULL",
                     (project["id"],)).fetchone():
         raise HTTPException(409, "Finish the pending goal expansion correction before completing this stage")
+    if expansion.mode == "all" and (selected_goal is not None or selection_reason is not None):
+        raise HTTPException(409, "Selection fields require expansion mode one")
+    if expansion.mode == "one" and not (selection_reason and selection_reason.strip()):
+        raise HTTPException(409, "Choice completion requires selection_reason explaining the decision")
     if not goals:
+        if expansion.mode == "one":
+            if selected_goal is not None:
+                raise HTTPException(409, "An empty choice cannot select a goal")
+            error = "No viable alternatives were found. Create a revised workflow with new information or constraints. Reason: " + selection_reason
+            conn.execute("UPDATE workflow_stages SET choice_error=? WHERE project_id=?", (error, project["id"]))
         return
     workflow_id = project["workflow_id"]
     parent_id = project["workflow_stage_id"]
@@ -268,9 +311,11 @@ def append_generated_goals(
             "verification_enabled": bool(project["verification_enabled"])},
     ) for index, goal in enumerate(goals, 1)]
     child_ids = [child.id for child in children]
+    if expansion.mode == "one" and selected_goal not in child_ids:
+        raise HTTPException(409, "selected_goal must reference one of the ranked generated goal IDs")
     updated_successors = []
     for row, definition in zip(rows, definitions):
-        if parent_id in definition.depends_on:
+        if expansion.mode == "all" and parent_id in definition.depends_on:
             if row["project_id"] is not None:
                 raise HTTPException(409, "A direct successor has already started; expansion cannot change its dependencies")
             definition.depends_on = [*definition.depends_on, *child_ids]
@@ -290,6 +335,10 @@ def append_generated_goals(
             "INSERT INTO workflow_stages(workflow_id,id,position,definition_json,generated_by_stage_id) VALUES(?,?,?,?,?)",
             (workflow_id, child.id, next_position + index, child.model_dump_json(), parent_id),
         )
+        if expansion.mode == "one":
+            row = conn.execute("SELECT * FROM workflow_stages WHERE workflow_id=? AND id=?", (workflow_id, child.id)).fetchone()
+            record_option_event(conn, row, "selected" if child.id == selected_goal else "pending", selection_reason)
+
 
 
 def request_expansion_recovery(conn: sqlite3.Connection, project: sqlite3.Row, description: str) -> dict:

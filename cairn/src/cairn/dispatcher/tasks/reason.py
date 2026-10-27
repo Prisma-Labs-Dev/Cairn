@@ -213,6 +213,9 @@ def run_reason_task(
                 preview(result.stdout),
             )
             return "rejected"
+        if kind == "unavailable":
+            response = client.unavailable(project.project.id, data["from"], data["description"], worker.name)
+            return "success" if response.ok or response.status_code == 403 else "failed"
         if kind == "complete":
             if project.required_artifacts and not capture_required_artifacts(
                 client, container_manager, project, worker.name,
@@ -221,6 +224,7 @@ def run_reason_task(
                 # checkpoint so repeated completion attempts cannot starve it.
                 return "success"
             kwargs = {"goals": data["goals"]} if "goals" in data else {}
+            kwargs.update({key: data[key] for key in ("selected_goal", "selection_reason") if key in data})
             if project.project.verification_enabled:
                 kwargs.update(producer_agent_id=producer_agent_id, producer_session_id=session or producer_session_id)
             response = client.complete(project.project.id, data["from"], data["description"], worker.name, **kwargs)

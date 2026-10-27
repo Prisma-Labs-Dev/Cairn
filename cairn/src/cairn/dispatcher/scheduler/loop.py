@@ -63,6 +63,7 @@ class DispatcherLoop:
         self.dispatcher_id = f"dispatcher_{uuid.uuid4().hex}"
         self.cleanup_executor = ThreadPoolExecutor(max_workers=max(1, min(8, self.config.runtime.max_workers)))
         self.futures: dict[Future[str], RunningTask] = {}
+        self._task_runtime_ids: dict[str, str] = {}
         self.cleanup_futures: dict[Future[bool], tuple[str, str | None, str | None]] = {}
         self.reason_checkpoints: dict[str, ReasonCheckpoint] = {}
         self.runtime_project_ids: set[str] = set()
@@ -341,6 +342,25 @@ class DispatcherLoop:
 
     def _try_dispatch_project(self, summary: ProjectSummary) -> bool:
         skip_scope = f"project:{summary.id}:skip"
+        runtime_ids = getattr(self, "_task_runtime_ids", {})
+        runtime_ids[summary.id] = summary.runtime_id
+        self._task_runtime_ids = runtime_ids
+        # A canceled worker may still be terminating its subprocess. Keep its
+        # shared workspace idle until the future has been reaped, including
+        # when a fallback or explicit retry has already activated a new project.
+        if any(
+            task.cancellation.is_cancelled
+            and runtime_ids.get(task.project_id, task.project_id) == summary.runtime_id
+            for task in self.futures.values()
+        ):
+            self._log_changed(
+                f"{skip_scope}:cancellation_draining",
+                logging.DEBUG,
+                "skip project=%s because canceled work is still draining runtime=%s",
+                summary.id,
+                summary.runtime_id,
+            )
+            return False
         limits = self._runtime_limits()
         busy = {task.project_id for task in self.futures.values()}
         if len(busy) > limits.max_running_projects:
@@ -1004,6 +1024,18 @@ class DispatcherLoop:
 
     def _cancel_inactive_tasks(self, summaries: list[ProjectSummary]) -> None:
         status_by_project = {summary.id: summary.status for summary in summaries}
+        running_projects = {task.project_id for task in self.futures.values()}
+        # Retain the last known runtime for deleted projects until their workers
+        # exit. The current snapshot may no longer contain those project IDs.
+        self._task_runtime_ids = {
+            project_id: runtime_id
+            for project_id, runtime_id in getattr(self, "_task_runtime_ids", {}).items()
+            if project_id in running_projects
+        }
+        self._task_runtime_ids.update({
+            summary.id: summary.runtime_id for summary in summaries
+            if summary.id in running_projects
+        })
         for task in self.futures.values():
             status = status_by_project.get(task.project_id, "deleted")
             if status != "active" and task.cancellation.cancel(status):

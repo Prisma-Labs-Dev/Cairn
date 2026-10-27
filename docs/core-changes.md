@@ -14,6 +14,27 @@ and runtime API details belong in [Runtime controls](runtime-controls.md).
 operating contracts. [Workflow management](workflow-management.md) covers recoverable workflow
 Trash; it does not change the original standalone project deletion endpoint.
 
+## Outcome-preserving worker guidance
+
+The bootstrap and reason prompt wrapper now explicitly asks workers to keep the requested
+outcome and hard constraints unchanged while adapting methods to new evidence. Suggested
+methods or ingredients count as preferences only when the user has not made them
+requirements. Required independent work can become parallel intents; mutually exclusive
+alternatives require selection before execution. This guidance also applies to standalone
+projects. It does not rewrite their goal facts, change completion verification defaults,
+or authorize replacing a hard requirement.
+
+Selected workflow alternatives additionally receive an evidence-backed `unavailable`
+response contract in bootstrap and reason. Only selected choice projects can use the new
+API. Other projects retain their ordinary intent/completion lifecycle. Full choice
+selection, fallback, manual recovery, and history contracts belong in
+[Staged workflows](workflows.md#choose-one-approach-with-ranked-fallback).
+
+Proof is in [workflow choice tests](../cairn/tests/test_workflow_choices.py), including
+local deterministic bootstrap and reason execution, and
+[cancellation-drain tests](../cairn/tests/test_choice_runtime_drain.py). These fixtures do
+not call live models or establish real-world ingredient availability.
+
 ## Project creation and metadata
 
 Before, creating a standalone project required nonempty `title`, `origin`, and `goal`.

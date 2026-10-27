@@ -22,7 +22,7 @@ def parser() -> argparse.ArgumentParser:
     result = JsonArgumentParser(
         description="Read optional earlier-stage context only when useful to the current goal. All results are JSON.",
     )
-    result.add_argument("command", choices=("list", "stage", "facts", "fact", "intents", "intent", "hints", "hint", "completion", "artifacts"))
+    result.add_argument("command", choices=("list", "stage", "facts", "fact", "intents", "intent", "hints", "hint", "completion", "artifacts", "choice-list", "choice-fact"))
     result.add_argument("stage_id", nargs="?", help="Stage ID from the paged list")
     result.add_argument("record_id", nargs="?", help="Fact or intent ID for a selected record")
     result.add_argument("--offset", type=int, default=0, help="Item offset for a list")
@@ -72,11 +72,18 @@ def bounded_record(record: dict, offset: int, max_chars: int) -> dict:
 def execute(args: argparse.Namespace, config: dict[str, str]):
     if not 1 <= args.limit <= 100 or args.offset < 0 or args.text_offset < 0 or not 1 <= args.max_chars <= 16000:
         raise ValueError("Offsets must be non-negative; limit must be 1..100 and max-chars 1..16000")
-    if args.command != "list" and not args.stage_id:
+    if args.command not in ("list", "choice-list") and not args.stage_id:
         raise ValueError("This command requires a stage ID from the history list")
-    if args.command in ("fact", "intent", "hint") and not args.record_id:
+    if args.command in ("fact", "intent", "hint", "choice-fact") and not args.record_id:
         raise ValueError("This command requires a fact or intent ID")
     project = quote(config["project_id"], safe="")
+    if args.command in ("choice-list", "choice-fact"):
+        path = f"/projects/{project}/choice-history"
+        if args.command == "choice-list":
+            return fetch_json(config["server"].rstrip("/") + path + "?" + urlencode({"offset": args.offset, "limit": args.limit}))
+        path += f"/{quote(args.stage_id, safe='')}/facts/{quote(args.record_id, safe='')}"
+        data = fetch_json(config["server"].rstrip("/") + path)
+        return data if args.full else bounded_record(data, args.text_offset, args.max_chars)
     path = f"/projects/{project}/history"
     if args.command != "list":
         path += f"/{quote(args.stage_id, safe='')}"
