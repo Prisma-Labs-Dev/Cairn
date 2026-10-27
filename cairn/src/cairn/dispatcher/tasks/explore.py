@@ -113,6 +113,7 @@ def run_explore_task(
             execute.argv,
             phase="explore_execute",
             timeout=config.tasks.explore.timeout,
+            usage_client=client, usage_project_id=project.project.id,
             lease=lease,
             cancellation=cancellation,
         )
@@ -316,6 +317,7 @@ def _try_conclude_fallback(
         conclude_argv,
         phase="explore_conclude",
         timeout=config.tasks.explore.conclude_timeout,
+        usage_client=client, usage_project_id=project_id,
         lease=lease,
         cancellation=cancellation,
     )
@@ -398,6 +400,8 @@ def _run_process(
     timeout: int,
     lease: HeartbeatLease,
     cancellation: TaskCancellation,
+    usage_client=None,
+    usage_project_id: str | None = None,
 ):
     return run_worker_process(
         container_manager,
@@ -408,4 +412,5 @@ def _run_process(
         timeout_seconds=timeout,
         lease=lease,
         cancellation=cancellation,
+        usage_client=usage_client, usage_project_id=usage_project_id,
     )

@@ -20,6 +20,7 @@ Only return the following after you have confirmed that Goal has been satisfied:
 - Output `complete` only if Goal has already been definitively achieved in this session. If Goal is not yet achieved, do not output `complete`, do not summarize partial progress as completion, and keep working until a conclude-phase instruction replaces this task.
 - `fact.description` must clearly state the confirmed key objective results. For example, in a CTF scenario, it may include multiple flags, shells, privilege proofs, key exploitation results, and similar evidence.
 - `complete.description` should explain why the currently confirmed results are sufficient to prove that Goal has been achieved.
+- If the task configuration enables goal expansion, include the required `complete.goals` array at actual completion. An explicit empty array means no follow-up goals. Proposed goals do not replace achieving the current Goal.
 - Do not put long data blobs in `description`. Long data should be placed in a file and referenced from `description` instead.
 
 # Context

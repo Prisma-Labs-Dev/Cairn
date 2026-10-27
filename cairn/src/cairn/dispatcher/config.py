@@ -195,6 +195,17 @@ class WorkerConfig(BaseModel):
     max_running: int = Field(gt=0)
     priority: int = Field(ge=0)
     env: dict[str, str] = Field(default_factory=dict)
+    model: str | None = None
+    reasoning_effort: Literal["minimal", "low", "medium", "high", "xhigh"] | None = None
+
+    @field_validator("model")
+    @classmethod
+    def validate_model(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("model must not be blank")
+        return value.strip()
 
     @field_validator("task_types")
     @classmethod
@@ -210,6 +221,8 @@ class WorkerConfig(BaseModel):
         # Required LLM env keys (base_url / key / model) are enforced per execution mode by
         # DispatchConfig: container mode needs them, local mode reuses the host CLI config.
         # The checks below are mode-independent and always apply.
+        if self.type != "codex" and (self.model is not None or self.reasoning_effort is not None):
+            raise ValueError("explicit model and reasoning_effort fields currently require a codex worker")
         if self.type == "pi":
             _validate_optional_positive_int_env(self.name, self.env, "PI_MODEL_CONTEXT_WINDOW")
         if self.type == "mock":
@@ -276,7 +289,8 @@ class DispatchConfig(BaseModel):
                 raise ValueError("container config is required when runtime.execution is container")
             for worker in self.workers:
                 required = WORKER_ENV_KEYS[worker.type]
-                missing = [key for key in required if not worker.env.get(key)]
+                missing = [key for key in required if not worker.env.get(key)
+                           and not (worker.type == "codex" and key == "CODEX_MODEL" and worker.model)]
                 if missing:
                     raise ValueError(f"worker {worker.name} missing env keys: {', '.join(missing)}")
         else:  # local: workers reuse the host CLI config, so no LLM env keys are required

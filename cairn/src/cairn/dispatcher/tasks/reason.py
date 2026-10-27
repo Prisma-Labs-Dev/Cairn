@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 
 from cairn.dispatcher.config import DispatchConfig, WorkerConfig
+from cairn.dispatcher.goal_expansion import expansion_prompt, recover_expansion
 from cairn.dispatcher.history import add_optional_history
 from cairn.dispatcher.artifacts import capture_required_artifacts
 from cairn.dispatcher.contracts import parse_json_output, validate_reason_payload
@@ -118,7 +120,10 @@ def run_reason_task(
         )
 
         prompt = add_optional_history(prompt, config, container_manager, container_name, project)
+        prompt = expansion_prompt(prompt, project)
+        producer_agent_id = f"producer_{uuid.uuid4().hex}"
         session = driver.prepare_session()
+        producer_session_id = session or f"producer_session_{uuid.uuid4().hex}"
         command = driver.build_execute(worker, prompt, session)
         execute_started = time.perf_counter()
         result = run_worker_process(
@@ -127,6 +132,7 @@ def run_reason_task(
             worker,
             command.argv,
             phase="reason_execute",
+            usage_client=client, usage_project_id=project.project.id,
             timeout_seconds=config.tasks.reason.timeout,
             lease=lease,
             cancellation=cancellation,
@@ -181,6 +187,7 @@ def run_reason_task(
             payload = parse_json_output(model_output)
             kind, data = validate_reason_payload(
                 payload, open_intents_empty=not open_intents, max_intents=config.tasks.reason.max_intents,
+                expansion_max_goals=project.expansion.max_goals if project.expansion else None,
             )
         except Exception as exc:
             LOG.warning(
@@ -193,6 +200,8 @@ def run_reason_task(
                 preview(result.stdout),
                 preview(result.stderr),
             )
+            if project.expansion:
+                return recover_expansion(client, project, worker.name, exc)
             return "failed"
         if kind == "rejected":
             LOG.warning(
@@ -211,10 +220,15 @@ def run_reason_task(
                 # Recovery is now an open exploration intent. Advance the reason
                 # checkpoint so repeated completion attempts cannot starve it.
                 return "success"
-            response = client.complete(project.project.id, data["from"], data["description"], worker.name)
+            kwargs = {"goals": data["goals"]} if "goals" in data else {}
+            if project.project.verification_enabled:
+                kwargs.update(producer_agent_id=producer_agent_id, producer_session_id=session or producer_session_id)
+            response = client.complete(project.project.id, data["from"], data["description"], worker.name, **kwargs)
             if response.status_code == 403:
                 LOG.info("project became inactive during reason complete project=%s worker=%s", project.project.id, worker.name)
                 return "success"
+            if project.expansion and response.status_code in (409, 422):
+                return recover_expansion(client, project, worker.name, response.text)
             if not response.ok:
                 LOG.warning(
                     "reason complete write failed project=%s worker=%s status=%s body=%s",

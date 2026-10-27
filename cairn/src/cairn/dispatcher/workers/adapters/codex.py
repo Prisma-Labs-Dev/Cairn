@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from cairn.dispatcher.usage_parsers import json_events
+
 from cairn.dispatcher.config import WorkerConfig
 from cairn.dispatcher.workers.base import DriverResult, RegexSessionDriver
 from cairn.dispatcher.workers.health import HealthResult, http_ping, proxies_from_env
@@ -23,7 +25,7 @@ class CodexDriver(RegexSessionDriver):
                 "content-type": "application/json",
             },
             json_body={
-                "model": env["CODEX_MODEL"],
+                "model": worker.model or env["CODEX_MODEL"],
                 "input": [{"role": "user", "content": "ping"}],
                 "stream": False,
             },
@@ -32,7 +34,17 @@ class CodexDriver(RegexSessionDriver):
         )
 
     def describe_health(self, worker: WorkerConfig) -> str:
-        return f"POST {worker.env['CODEX_BASE_URL']}/responses (model={worker.env['CODEX_MODEL']})"
+        return f"POST {worker.env['CODEX_BASE_URL']}/responses (model={worker.model or worker.env['CODEX_MODEL']})"
+
+    def _model_options(self, worker: WorkerConfig) -> list[str]:
+        options = []
+        model = worker.model if self.local else worker.model or worker.env["CODEX_MODEL"]
+        effort = worker.reasoning_effort if self.local else worker.reasoning_effort or "high"
+        if model:
+            options.extend(["--model", model])
+        if effort:
+            options.extend(["-c", f'model_reasoning_effort="{effort}"'])
+        return options
 
     def build_execute(self, worker: WorkerConfig, prompt: str, session: str | None) -> DriverResult:
         if self.local:
@@ -40,7 +52,9 @@ class CodexDriver(RegexSessionDriver):
                 argv=[
                     "codex",
                     "exec",
+                    "--json",
                     "--dangerously-bypass-approvals-and-sandbox",
+                    *self._model_options(worker),
                     "--",
                     prompt,
                 ]
@@ -50,17 +64,15 @@ class CodexDriver(RegexSessionDriver):
             argv=[
                 "codex",
                 "exec",
+                "--json",
                 "--dangerously-bypass-approvals-and-sandbox",
-                "--model",
-                env["CODEX_MODEL"],
+                *self._model_options(worker),
                 "-c",
                 'model_provider="cairn"',
                 "-c",
                 'model_providers.cairn.name="cairn"',
                 "-c",
                 'model_providers.cairn.wire_api="responses"',
-                "-c",
-                'model_reasoning_effort="high"',
                 "-c",
                 f'model_providers.cairn.base_url="{env["CODEX_BASE_URL"]}"',
                 "-c",
@@ -76,8 +88,10 @@ class CodexDriver(RegexSessionDriver):
                 "codex",
                 "exec",
                 "resume",
+                "--json",
                 session,
                 "--dangerously-bypass-approvals-and-sandbox",
+                *self._model_options(worker),
                 "--",
                 prompt,
             ]
@@ -86,10 +100,10 @@ class CodexDriver(RegexSessionDriver):
             "codex",
             "exec",
             "resume",
+            "--json",
             session,
             "--dangerously-bypass-approvals-and-sandbox",
-            "--model",
-            env["CODEX_MODEL"],
+            *self._model_options(worker),
             "-c",
             'model_provider="cairn"',
             "-c",
@@ -97,11 +111,24 @@ class CodexDriver(RegexSessionDriver):
             "-c",
             'model_providers.cairn.wire_api="responses"',
             "-c",
-            'model_reasoning_effort="high"',
-            "-c",
             f'model_providers.cairn.base_url="{env["CODEX_BASE_URL"]}"',
             "-c",
             'model_providers.cairn.env_key="OPENAI_API_KEY"',
             "--",
             prompt,
         ]
+
+    def extract_session(self, session: str | None, stdout: str, stderr: str) -> str | None:
+        for event in json_events(stdout):
+            if event.get("type") == "thread.started" and isinstance(event.get("thread_id"), str):
+                return event["thread_id"]
+        return super().extract_session(session, stdout, stderr)
+
+    def extract_response_text(self, stdout: str, stderr: str) -> str:
+        events = json_events(stdout)
+        messages = [event["item"]["text"] for event in events if event.get("type") == "item.completed"
+                    and isinstance(event.get("item"), dict) and event["item"].get("type") == "agent_message"
+                    and isinstance(event["item"].get("text"), str)]
+        if messages:
+            return messages[-1]
+        return "" if any(event.get("type") in ("thread.started", "turn.completed", "turn.failed", "turn.started") for event in events) else stdout

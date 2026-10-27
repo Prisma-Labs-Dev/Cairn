@@ -10,6 +10,7 @@ import requests
 from requests.adapters import HTTPAdapter
 
 from cairn.server.models import Intent, ProjectDetail, ProjectSummary, Settings
+from cairn.server.runtime_models import DispatcherReport, RuntimeSettingsState
 
 LOG = logging.getLogger(__name__)
 
@@ -63,6 +64,31 @@ class CairnClient:
         response.raise_for_status()
         return Settings.model_validate(response.json())
 
+    def get_runtime_settings(self) -> RuntimeSettingsState:
+        response = self._session().get(self._url("/runtime/settings"), timeout=self._timeout)
+        response.raise_for_status()
+        return RuntimeSettingsState.model_validate(response.json())
+
+    def publish_runtime(self, dispatcher_id: str, report: DispatcherReport) -> ApiResult:
+        return self._request_json("POST", f"/runtime/dispatchers/{dispatcher_id}", report.model_dump())
+
+    def record_usage_reporter(self, payload: dict) -> ApiResult:
+        return self._record_usage("/usage/reporters", payload)
+
+    def record_usage_attempt(self, payload: dict) -> ApiResult:
+        return self._record_usage("/usage/attempts", payload)
+
+    def _record_usage(self, path: str, payload: dict) -> ApiResult:
+        try:
+            response = self._session().post(self._url(path), json=payload, timeout=(1, 1))
+        except requests.RequestException:
+            return ApiResult(0)
+        try:
+            data = response.json() if response.text else None
+        except ValueError:
+            data = None
+        return ApiResult(response.status_code, data)
+
     def export_project(self, project_id: str) -> str:
         response = self._session().get(
             self._url(f"/projects/{project_id}/export"),
@@ -114,11 +140,35 @@ class CairnClient:
             json={"worker": worker, "description": description},
         )
 
-    def complete(self, project_id: str, from_ids: list[str], description: str, worker: str) -> ApiResult:
+    def complete(self, project_id: str, from_ids: list[str], description: str, worker: str, goals: list[dict] | None = None, producer_agent_id: str | None = None, producer_session_id: str | None = None) -> ApiResult:
+        payload = {"from": from_ids, "description": description, "worker": worker}
+        if producer_agent_id is not None:
+            payload["producer_agent_id"] = producer_agent_id
+            payload["producer_session_id"] = producer_session_id
+        if goals is not None:
+            payload["goals"] = goals
         return self._request_json(
             "POST",
             f"/projects/{project_id}/complete",
-            json={"from": from_ids, "description": description, "worker": worker},
+            json=payload,
+        )
+
+    def claim_review(self, claim_id: str, identity: dict) -> ApiResult:
+        return self._request_json("POST", f"/reviews/{claim_id}/claim", identity)
+
+    def review_heartbeat(self, claim_id: str, identity: dict) -> ApiResult:
+        return self._request_json("POST", f"/reviews/{claim_id}/heartbeat", identity)
+
+    def release_review(self, claim_id: str, identity: dict) -> ApiResult:
+        return self._request_json("POST", f"/reviews/{claim_id}/release", identity)
+
+    def decide_review(self, claim_id: str, payload: dict) -> ApiResult:
+        return self._request_json("POST", f"/reviews/{claim_id}/decision", payload)
+
+    def request_expansion_recovery(self, project_id: str, description: str, worker: str) -> ApiResult:
+        return self._request_json(
+            "POST", f"/projects/{project_id}/expansion-recovery",
+            json={"worker": worker, "description": description},
         )
 
     def create_intent(self, project_id: str, from_ids: list[str], description: str, creator: str) -> ApiResult:
@@ -162,7 +212,7 @@ class CairnClient:
             LOG.warning("request failed method=%s path=%s error=%s", method, path, exc)
             return ApiResult(status_code=0, text=str(exc))
         data: Any | None = None
-        if response.headers.get("content-type", "").startswith("application/json"):
+        if response.text and response.headers.get("content-type", "").startswith("application/json"):
             data = response.json()
         return ApiResult(status_code=response.status_code, data=data, text=response.text)
 

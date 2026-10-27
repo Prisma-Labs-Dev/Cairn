@@ -106,6 +106,66 @@ To add a parallel branch, give two stages the same prerequisite. A joining stage
 list both IDs in `depends_on`. Every listed prerequisite must complete before it starts.
 The server rejects duplicate stage IDs, missing prerequisites, and dependency cycles.
 
+## Discover goals while working
+
+A stage can opt into generating independent follow-up goals. For example, discover items
+in supplied materials, investigate each item, then combine the results:
+
+```yaml
+stages:
+  - id: discover
+    goal: Identify the items in the supplied fixture that need investigation.
+    expansion:
+      max_goals: 16
+  - id: combine
+    goal: Combine the completed item investigations into a result.
+    depends_on: [discover]
+```
+
+After actually achieving `discover`, its worker includes goals in the completion response:
+
+```json
+{
+  "from": ["f001"],
+  "description": "The supplied fixture contains two relevant items.",
+  "worker": "worker-name",
+  "goals": [
+    {"id": "alpha", "goal": "Investigate item alpha in the supplied fixture."},
+    {"id": "beta", "goal": "Investigate item beta in the supplied fixture."}
+  ]
+}
+```
+
+This is the body for `POST /projects/{id}/complete`. Worker bootstrap/reason output puts
+the same `goals` array inside its `complete` object. An expandable stage must supply an
+explicit array; `[]` means there are no follow-up goals. Proposing more work never replaces
+achieving the current goal.
+
+The server validates and records completion and appends the new stages in one transaction.
+`alpha` and `beta` depend on `discover` and become available in parallel. The still-blocked
+`combine` stage now waits for `discover`, `alpha`, and `beta`. Every unstarted direct
+successor receives the same join dependencies. Generated stages expose
+`generated_by_stage_id` so readers can trace where they came from.
+
+Each proposal requires a nonblank `goal` of at most 8,000 characters. It may also specify
+`id`, `title`, `kind`, `bootstrap_enabled`, and `artifacts`. Omitted IDs are deterministic
+parent-based IDs. Workers cannot supply dependencies or enable expansion on generated
+goals. Declared IDs and artifact paths must remain unique across the workflow; conflicting
+proposals are rejected without partially changing the workflow. `max_goals` defaults to
+16 and accepts integers from 1 to 64. The complete workflow remains limited to 128 stages.
+Limits reject excessive proposals rather than silently dropping them.
+
+Non-expandable stages reject nonempty proposals. Retrying an identical successful
+expandable completion returns its original result without creating duplicate stages.
+Different results for an already completed stage are rejected. A dispatcher worker's
+missing or malformed goal list creates corrective work. After three unsuccessful
+correction attempts, Cairn pauses the workflow with a readable `expansion_error`; explicit
+resume resets that unfinished stage's recovery budget. These corrections use the existing
+worker loop, with no separate model call for planning or metadata.
+
+Generated children receive their own goal and the optional history pointer. The parent's
+findings, completion explanation, and other proposals are not copied into child prompts.
+
 ## What a stage receives
 
 Each stage starts with the workflow's starting instructions, its own goal and output
@@ -208,9 +268,9 @@ when those checks matter.
 
 ## Initial scope
 
-This is a dependency-based workflow implementation. Definitions are fixed when created.
-It does not yet support runtime-generated stages, conditional branches, automatic retry
-policies, nested reusable workflows, a source library, or a rendered book/report editor.
+This is a dependency-based workflow implementation with opt-in goal expansion.
+It does not yet support arbitrary conditional branches, nested reusable workflows,
+a source library, or a rendered book/report editor.
 Further research can be planned as intermediate stages, and agents can explore new intents
 within each stage.
 

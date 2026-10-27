@@ -2,6 +2,9 @@
 
 This fork adds dependency-based workflows and generic file artifacts above Cairn's existing
 single-goal exploration engine. Upstream base: `oritera/Cairn` at `8e7e0ea`.
+Changes to the original engine are recorded in [Core changes](docs/core-changes.md). The
+[server protocol](docs/specs/server-protocol.md) and
+[dispatcher specification](docs/specs/dispatcher-design.md) are maintained in English.
 
 ## What works
 
@@ -14,6 +17,11 @@ single-goal exploration engine. Upstream base: `oritera/Cairn` at `8e7e0ea`.
 - Durable binary artifact downloads, hashes, sizes, and retained workflow working files.
 - Workflow creation, progress, completion summaries, stop/resume, and stage graph navigation.
 - Goal-only project creation, JSON/YAML workflow files, and agent-editable optional metadata.
+- Explicit goal expansion into bounded generated stages before later work continues.
+- Live runtime concurrency overrides, dispatcher freshness, and worker pool capacity in the UI.
+- Optional independent completion review, off by default, with frozen evidence and bounded rework.
+- CLI-reported token usage by model and invocation, explicit coverage, durable outbox, and reporter health.
+- Workflow Pause/Resume and recoverable Trash, retaining artifacts, graphs, workspaces, usage, and reviews.
 
 ## Run
 
@@ -34,13 +42,35 @@ standalone projects. Run
 Browser checks covered workflow creation, artifact-only stages, stage progress, output
 downloads, and desktop/390px layouts. A deterministic three-stage find/produce/check demo
 completed against the real local HTTP server and produced a verified downloadable file.
-No live model calls or real Docker execution were used for verification. Container file
-reading is covered by script-level tests and the existing fake-container tests.
+Regression tests use deterministic workers and local subprocesses rather than provider
+APIs. Container file reading is covered by script-level tests and fake-container tests.
+Runtime control behavior is documented in [Runtime controls](docs/runtime-controls.md).
+[Core changes](docs/core-changes.md) links each changed original behavior to its regression
+coverage. Documentation translation was checked against current models, routers, drivers,
+and scheduling code; the original embedded prompt copies now link to the loaded resources.
+Focused tests also cover independent review gates and leases, immutable claim evidence,
+workflow Trash/restore races, structured CLI result extraction, usage replay and cumulative
+resume accounting, and exclusive outbox ownership across processes. The guides
+[verification](docs/verification.md), [usage](docs/usage.md), and
+[workflow management](docs/workflow-management.md) describe those contracts.
+
+Live HTTP checks exercised a pending completion claim, same-producer review rejection,
+approval before workflow fan-out, Trash hiding and write rejection, and paused restoration.
+These are API/state-transition checks. There has been no live Luna benchmark in this work.
+Fabricated citations in evaluator tests are injected test cases, not observed model behavior.
+[Benchmark setup](docs/benchmarks.md) has no pilot measurements or demonstrated workflow advantage.
 
 ## Current limits
 
-Definitions are fixed at creation. Nested reusable workflows, conditional branches, and
-runtime-generated stages are not implemented. Layers are labels over a dependency graph.
+Existing stage definitions remain fixed, but explicitly expandable stages may generate
+bounded follow-up goals. Nested reusable workflows and conditional branches are not
+implemented. Layers are labels over a dependency graph. Runtime caps apply independently
+per dispatcher, not across all processes sharing a server.
 Artifacts use distinct output paths across the workflow, up to 10 MiB each, at most 32 declared per stage. File presence is
 checked; semantic correctness still depends on the agent and explicit review stages.
-The UI downloads artifacts but does not render or edit their contents.
+The UI downloads artifacts but does not render or edit their contents. Independent verification
+is another agent assessment, not proof of correctness. Token totals cover available CLI reports,
+not provider-wide billing; missing counters remain unknown. Each dispatcher requires a separate
+durable usage outbox path on a filesystem with advisory-lock support. Trash is recoverable and
+does not permanently erase workflow data. Full live research and container/provider validation
+remain separate from deterministic regression and local HTTP checks.

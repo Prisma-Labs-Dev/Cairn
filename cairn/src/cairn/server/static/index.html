@@ -265,6 +265,8 @@
       </button>
     </div>
     <div class="flex items-center justify-end gap-1.5 shrink-0 w-full sm:w-auto order-4 sm:order-none">
+      <button @click="openReviews()" class="h-7 px-2.5 rounded-lg border border-slate-200 text-xs text-slate-600 hover:bg-slate-50 transition whitespace-nowrap">Reviews</button>
+      <button @click="openUsage()" class="h-7 px-2.5 rounded-lg border border-slate-200 text-xs text-slate-600 hover:bg-slate-50 transition whitespace-nowrap">Token usage</button>
       <button @click="showNewWorkflow = true" class="h-7 px-2.5 rounded-lg bg-brand-500 text-xs text-white hover:bg-brand-600 transition whitespace-nowrap">New workflow</button>
       <button @click="showNewProject = true" class="h-7 px-2.5 rounded-lg border border-brand-200 text-xs text-brand-600 hover:bg-brand-50 transition inline-flex items-center gap-1.5 whitespace-nowrap">
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
@@ -282,10 +284,14 @@
   </header>
 
   <div x-ref="projectListScroll" @scroll.passive="rememberProjectListScroll()" class="flex-1 overflow-y-auto p-4">
+    <section class="flex flex-wrap items-center justify-between gap-3 mb-5 rounded-xl border border-slate-200 bg-white px-4 py-3" aria-label="Execution status">
+      <div class="min-w-0 flex-1"><div class="flex flex-wrap items-center gap-2"><h2 class="text-xs font-semibold text-slate-700">Execution</h2><span class="text-[10px] rounded-full px-2 py-0.5 font-medium" :class="runtimeStatusClass()" x-text="runtimeStatusLabel()"></span></div><p class="text-xs text-slate-500 mt-1" x-text="runtimeSummary()"></p></div>
+      <button @click="openExecution()" class="text-xs font-medium text-brand-600 border border-brand-200 rounded-lg px-3 py-1.5 hover:bg-brand-50 shrink-0">Configure concurrency</button>
+    </section>
     <section class="mb-6" aria-label="Workflows">
       <div class="flex items-center justify-between gap-3 mb-3">
         <h2 class="text-sm font-semibold text-slate-700">Workflows</h2>
-        <p class="text-xs text-slate-400">Goals that unlock the next stage</p>
+        <button @click="openWorkflowTrash()" class="text-xs text-slate-500 border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-white">Trash</button>
       </div>
       <template x-if="workflows.length === 0">
         <button @click="showNewWorkflow = true" class="w-full text-left border border-dashed border-brand-200 rounded-2xl bg-white p-5 hover:bg-brand-50 transition">
@@ -295,16 +301,22 @@
       </template>
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         <template x-for="item in workflows" :key="item.id">
-          <button @click="openWorkflow(item.id)" class="text-left bg-white rounded-2xl border border-slate-200 p-5 hover:border-brand-300 hover:shadow-md transition">
+          <article class="bg-white rounded-2xl border border-slate-200 overflow-hidden hover:border-brand-300 hover:shadow-md transition flex flex-col">
+          <button @click="openWorkflow(item.id)" class="block w-full flex-1 text-left p-5 hover:bg-slate-50 transition">
             <div class="flex items-center justify-between gap-2 mb-3">
               <span class="text-[11px] font-mono text-slate-400" x-text="item.id"></span>
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide" :class="projectStatusBadgeClass(item.status)" x-text="item.status"></span>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide" :class="projectStatusBadgeClass(item.status)" x-text="workflowStatusLabel(item.status)"></span>
             </div>
             <h3 class="font-semibold text-slate-700 break-words" x-text="item.title"></h3>
             <p class="text-xs text-slate-500 mt-3" x-text="`${item.completed_stage_count} of ${item.stage_count} goals completed`"></p>
             <div class="h-1.5 rounded-full bg-slate-100 mt-2 overflow-hidden"><div class="h-full rounded-full bg-brand-500" :style="`width:${item.stage_count ? item.completed_stage_count / item.stage_count * 100 : 0}%`"></div></div>
             <p class="text-xs text-slate-400 mt-2" x-text="item.status === 'completed' ? 'All stage goals met' : `${item.active_stage_count} active stage${item.active_stage_count === 1 ? '' : 's'}`"></p>
           </button>
+          <div class="border-t border-slate-100 px-4 py-3 flex justify-end gap-2">
+            <button x-show="item.status !== 'completed'" @click="changeWorkflowStatus(item.id, item.status)" :disabled="!!workflowActionId" class="px-3 py-1.5 rounded-lg border text-xs disabled:opacity-40" :class="item.status === 'active' ? 'border-amber-200 text-amber-700 hover:bg-amber-50' : 'border-teal-200 text-teal-700 hover:bg-teal-50'" x-text="workflowActionId === item.id ? 'Saving...' : item.status === 'active' ? 'Pause' : 'Resume'"></button>
+            <button @click="requestWorkflowDelete(item.id, item.title)" :disabled="!!workflowActionId" class="px-3 py-1.5 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 text-xs disabled:opacity-40">Delete</button>
+          </div>
+          </article>
         </template>
       </div>
     </section>
@@ -421,20 +433,130 @@
   </div>
 </div>
 
+<!-- Independent goal reviews -->
+<template x-if="view === 'reviews'">
+  <div class="flex-1 flex flex-col overflow-hidden">
+    <header class="bg-white border-b border-slate-200 px-4 py-3 flex items-center gap-3 shrink-0">
+      <button @click="backToList()" aria-label="Back to all projects" class="p-2 rounded-lg text-slate-500 hover:bg-slate-100">&larr;</button>
+      <div class="flex-1"><h1 class="font-semibold text-slate-700">Reviews</h1><p class="text-xs text-slate-500">A separate agent checks completion claims when verification is enabled.</p></div>
+      <button @click="loadReviews()" class="px-3 py-1.5 rounded-lg border text-xs">Refresh</button>
+    </header>
+    <div class="overflow-auto p-4 sm:p-6 space-y-4 max-w-5xl w-full mx-auto">
+      <p x-show="reviewError" x-text="reviewError" class="text-sm text-rose-600"></p>
+      <p x-show="!reviews.length" class="text-sm text-slate-500">No completion claims yet. Independent verification is optional and off by default.</p>
+      <div class="flex justify-between text-xs text-slate-500"><span x-text="`${reviewPage.total} claims`"></span><div class="flex gap-4"><button @click="loadReviews(Math.max(0,reviewPage.offset-reviewPage.limit))" :disabled="reviewPage.offset===0" class="disabled:opacity-30">Previous</button><button @click="loadReviews(reviewPage.next_offset)" :disabled="reviewPage.next_offset===null" class="disabled:opacity-30">Next</button></div></div>
+      <template x-for="review in reviews" :key="review.id">
+        <article class="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+          <div class="flex items-start justify-between gap-3"><button @click="openProject(review.project_id)" class="text-brand-600 font-medium text-left" x-text="review.project_title"></button><span class="text-xs uppercase rounded-full bg-slate-100 px-2 py-1" x-text="review.status"></span></div>
+          <p class="text-sm text-slate-700 whitespace-pre-wrap" x-text="review.completion_description"></p>
+          <p class="text-xs text-slate-500 break-all" x-text="`Producer ${review.producer_worker} · agent ${review.producer_agent_id} · session ${review.producer_session_id}`"></p>
+          <p class="text-xs text-slate-500 break-all" x-text="review.reviewer_agent_id ? `Reviewer ${review.reviewer_worker} · agent ${review.reviewer_agent_id} · session ${review.reviewer_session_id}` : 'Waiting for a fresh reviewer agent' "></p>
+          <p x-show="review.status === 'pending'" class="text-xs text-amber-700">The goal is awaiting review. Dependent goals remain blocked. Paused projects resume review after you resume the project or workflow.</p>
+          <p x-show="review.feedback" class="text-sm whitespace-pre-wrap text-slate-700" x-text="review.feedback"></p>
+          <button @click="loadReviewDetail(review.id)" class="text-xs text-brand-600" x-text="reviewDetails[review.id] ? 'Hide full claim and evidence' : 'Open full claim and evidence'"></button>
+          <template x-if="reviewDetails[review.id]"><div class="text-xs space-y-2"><p class="whitespace-pre-wrap" x-text="reviewDetails[review.id].feedback"></p><ul class="list-disc pl-5 text-slate-600"><template x-for="(evidence, i) in reviewDetails[review.id].evidence" :key="i"><li x-text="evidence"></li></template></ul><pre class="whitespace-pre-wrap break-words text-slate-600" x-text="JSON.stringify({completion:reviewDetails[review.id].completion,snapshot:reviewDetails[review.id].snapshot}, null, 2)"></pre></div></template>
+        </article>
+      </template>
+    </div>
+  </div>
+</template>
+
+<!-- Token usage view -->
+<template x-if="view === 'usage'">
+  <div class="flex-1 flex flex-col overflow-hidden">
+    <header class="bg-white border-b border-slate-200 px-4 py-3 flex items-center gap-3 shrink-0">
+      <button @click="backToList()" aria-label="Back to all projects" class="p-2 rounded-lg text-slate-500 hover:bg-slate-100">&larr;</button>
+      <div class="min-w-0 flex-1"><h1 class="font-semibold text-slate-700">Token usage</h1><p class="text-[11px] text-slate-400" x-text="usageLastUpdated ? `Updated ${formatTime(usageLastUpdated)}` : 'Worker invocation accounting'"></p></div>
+      <button @click="loadUsage(usageOffset)" :disabled="usageLoading || !usageWindowValid()" class="px-3 py-1.5 rounded-lg border border-brand-200 text-xs text-brand-600 hover:bg-brand-50 disabled:opacity-40" x-text="usageLoading ? 'Loading...' : 'Refresh'"></button>
+    </header>
+    <main class="flex-1 overflow-y-auto p-4 sm:p-6">
+      <div class="max-w-6xl mx-auto space-y-5">
+        <form @submit.prevent="loadUsage(0)" class="rounded-2xl border border-slate-200 bg-white p-4">
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <label class="block text-xs text-slate-500">Time window<select x-model="usageFilters.window" class="block w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm text-slate-700"><option value="24h">Last 24 hours</option><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option><option value="all">All time</option><option value="custom">Custom dates</option></select></label>
+            <label class="block text-xs text-slate-500">Project<select x-model="usageFilters.project_id" class="block w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm text-slate-700"><option value="">All projects</option><template x-for="item in projects" :key="item.id"><option :value="item.id" x-text="item.title || item.id"></option></template></select></label>
+            <label x-show="usageFilters.window === 'custom'" class="block text-xs text-slate-500">From, local time<input type="datetime-local" x-model="usageFilters.since" class="block w-full min-w-0 mt-1 px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-700"></label>
+            <label x-show="usageFilters.window === 'custom'" class="block text-xs text-slate-500">Until, local time<input type="datetime-local" x-model="usageFilters.until" class="block w-full min-w-0 mt-1 px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-700"></label>
+          </div>
+          <div class="flex flex-wrap justify-between items-center gap-3 mt-3"><p class="text-[11px] text-slate-400">Each process invocation counts once, including conclusion phases and retries.</p><button type="submit" :disabled="usageLoading || !usageWindowValid()" class="px-3 py-1.5 rounded-lg bg-brand-500 text-white text-xs hover:bg-brand-600 disabled:opacity-40">Apply filters</button></div>
+          <p class="text-[11px] text-slate-400 mt-2">Worker CLI invocations only; manual calls and provider health probes are excluded.</p>
+          <p x-show="!usageWindowValid()" class="text-xs text-rose-600 mt-2">Choose valid dates with From earlier than Until.</p>
+          <p x-show="usageFiltersDirty()" class="text-xs text-amber-700 mt-2">Filters changed. Apply them to update the results below.</p>
+        </form>
+        <p x-show="usageError" x-text="usageError" role="alert" class="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 whitespace-pre-wrap break-words"></p>
+        <template x-if="usageSummary">
+          <div class="space-y-5">
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <section class="rounded-xl border border-slate-200 bg-white p-4"><h2 class="text-xs text-slate-500">Invocations</h2><p class="text-xl font-semibold text-slate-700 mt-2" x-text="usageNumber(usageSummary.totals.attempts)"></p><p class="text-[11px] text-slate-400 mt-1" x-text="`${usageNumber(usageSummary.totals.reported_attempts)} fully reported`"></p></section>
+              <section class="rounded-xl border border-slate-200 bg-white p-4"><h2 class="text-xs text-slate-500">Reported token subtotal</h2><p class="text-xl font-semibold text-slate-700 mt-2" x-text="usageNumber(usageReportedTotal(usageSummary.totals))"></p><p class="text-[11px] text-slate-400 mt-1">Input plus output, where reported</p></section>
+              <section class="rounded-xl border border-slate-200 bg-white p-4"><h2 class="text-xs text-slate-500">Cached input</h2><p class="text-xl font-semibold text-slate-700 mt-2" x-text="usageNumber(usageSummary.totals.cached_input_tokens)"></p><p class="text-[11px] text-slate-400 mt-1" x-text="usageMetricCoverage(usageSummary.totals, 'cached_input_tokens')"></p></section>
+              <section class="rounded-xl border border-slate-200 bg-white p-4"><h2 class="text-xs text-slate-500">No token report</h2><p class="text-xl font-semibold text-slate-700 mt-2" x-text="usageNumber(usageSummary.totals.unreported_attempts)"></p><p class="text-[11px] text-slate-400 mt-1" x-text="`${usageNumber(usageSummary.totals.partial_attempts)} more partially reported`"></p></section>
+            </div>
+            <section x-show="usageSummary.totals.partial_attempts || usageSummary.totals.unreported_attempts" class="rounded-xl border border-amber-200 bg-amber-50 p-4"><h2 class="text-xs font-semibold text-amber-800">Incomplete reporting</h2><p class="text-xs text-amber-800 mt-1">Token totals include only reported values. Unavailable metrics are not treated as zero. A configured model name does not confirm which model answered.</p></section>
+            <section class="rounded-xl border border-slate-200 bg-white p-4">
+              <h2 class="text-sm font-semibold text-slate-700">Reporting queue</h2>
+              <p class="text-[11px] text-slate-400 mt-1">Latest reporting snapshots, independent of the date and project filters.</p>
+              <p x-show="!usageSummary.reporting?.reporters?.length" class="text-xs text-slate-500 mt-3">Reporting health is unavailable. No reporter snapshot has arrived.</p>
+              <template x-if="usageSummary.reporting?.reporters?.length"><div><dl class="grid grid-cols-3 gap-3 mt-4"><div><dt class="text-[11px] text-slate-400">Awaiting transfer</dt><dd class="text-lg font-semibold text-slate-700 mt-1" x-text="usageNumber(usageReporterCount('pending_attempts'))"></dd></div><div><dt class="text-[11px] text-slate-400">Still running</dt><dd class="text-lg font-semibold text-slate-700 mt-1" x-text="usageNumber(usageReporterCount('running_attempts'))"></dd></div><div><dt class="text-[11px] text-slate-400">Rejected records</dt><dd class="text-lg font-semibold mt-1" :class="usageReporterCount('rejected_attempts') ? 'text-amber-700' : 'text-slate-700'" x-text="usageNumber(usageReporterCount('rejected_attempts'))"></dd></div></dl><div class="mt-3 space-y-1"><template x-for="(reporter, index) in usageSummary.reporting.reporters" :key="reporter.reporter_id"><p class="text-[11px] text-slate-400" x-text="`Reporter ${index + 1}: last seen ${formatDate(reporter.last_seen)}`"></p></template></div><p class="text-[11px] text-slate-500 mt-2">These are last reported queue counts. An offline reporter may have additional records that have not arrived.</p></div></template>
+            </section>
+            <section class="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+              <div class="p-4 border-b border-slate-100"><h2 class="text-sm font-semibold text-slate-700">Usage by model</h2><p class="text-[11px] text-slate-400 mt-1">Cached input is cache reads. Uncached input includes fresh input and cache writes; the write column is a breakdown, not extra input.</p></div>
+              <p x-show="!usageSummary.models.length" class="p-5 text-sm text-slate-500">No worker invocations were recorded for this window.</p>
+              <div class="sm:hidden p-4 space-y-3"><template x-for="model in usageSummary.models" :key="usageModelKey(model)"><article class="rounded-xl border border-slate-200 p-3"><h3 class="text-sm font-semibold text-slate-700 break-words" x-text="model.model || 'Unknown model'"></h3><p class="text-[11px] text-slate-400 mt-1" x-text="`${usageModelSource(model.model_source)} · ${model.worker_type} · ${usageNumber(model.attempts)} invocations`"></p><dl class="grid grid-cols-2 gap-3 mt-4"><template x-for="metric in usageMetrics" :key="metric.key"><div><dt class="text-[11px] text-slate-400" x-text="metric.label"></dt><dd class="text-sm font-medium text-slate-700 mt-1" x-text="usageNumber(model[metric.key])"></dd><dd class="text-[10px] text-slate-400" x-text="usageMetricCoverage(model, metric.key)"></dd></div></template><div><dt class="text-[11px] text-slate-400">Reported subtotal</dt><dd class="text-sm font-medium text-slate-700 mt-1" x-text="usageNumber(usageReportedTotal(model))"></dd></div></dl></article></template></div>
+              <div class="hidden sm:block overflow-x-auto"><table class="w-full text-left text-xs"><thead class="bg-slate-50 text-slate-500"><tr><th class="p-4 font-medium">Model</th><th class="p-3 font-medium">Invocations</th><template x-for="metric in usageMetrics" :key="metric.key"><th class="p-3 font-medium whitespace-nowrap" x-text="metric.label"></th></template><th class="p-3 font-medium whitespace-nowrap">Reported subtotal</th></tr></thead><tbody><template x-for="model in usageSummary.models" :key="usageModelKey(model)"><tr class="border-t border-slate-100"><th class="p-4 font-medium text-slate-700 min-w-40"><span class="block break-words" x-text="model.model || 'Unknown model'"></span><span class="block text-[10px] font-normal text-slate-400 mt-1" x-text="`${usageModelSource(model.model_source)} · ${model.worker_type}`"></span></th><td class="p-3 text-slate-600" x-text="usageNumber(model.attempts)"></td><template x-for="metric in usageMetrics" :key="metric.key"><td class="p-3 text-slate-700"><span class="block" x-text="usageNumber(model[metric.key])"></span><span class="block text-[10px] text-slate-400 mt-1 whitespace-nowrap" x-text="usageMetricCoverage(model, metric.key)"></span></td></template><td class="p-3 text-slate-700" x-text="usageNumber(usageReportedTotal(model))"></td></tr></template></tbody></table></div>
+            </section>
+            <template x-if="usageSummary.phase_attempts"><section class="rounded-xl border border-slate-200 bg-white p-4"><h2 class="text-sm font-semibold text-slate-700">Invocations by phase</h2><div class="flex flex-wrap gap-2 mt-3"><template x-for="(count, phase) in usageSummary.phase_attempts" :key="phase"><span class="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600"><span x-text="usagePhaseLabel(phase)"></span><strong class="ml-2" x-text="usageNumber(count)"></strong></span></template></div></section></template>
+          </div>
+        </template>
+        <template x-if="usageAttempts">
+          <section class="rounded-2xl border border-slate-200 bg-white p-4">
+            <div class="flex flex-wrap justify-between items-center gap-2"><h2 class="text-sm font-semibold text-slate-700">Recent invocations</h2><span class="text-xs text-slate-400" x-text="historyPageLabel(usageAttempts)"></span></div>
+            <p class="text-[11px] text-slate-400 mt-2">Status shows the worker process result. Check the project graph for goal completion.</p>
+            <p x-show="!usageAttempts.items.length" class="text-sm text-slate-500 mt-4">No invocations in this window.</p>
+            <div class="space-y-3 mt-4"><template x-for="attempt in usageAttempts.items" :key="attempt.attempt_id"><article class="rounded-xl border border-slate-200 p-3"><div class="flex flex-wrap justify-between items-start gap-2"><div class="min-w-0"><h3 class="text-xs font-semibold text-slate-700" x-text="usagePhaseLabel(attempt.phase)"></h3><p class="text-[11px] text-slate-400 mt-1 break-words" x-text="`${attempt.worker_name} · ${formatDate(attempt.started_at)}`"></p></div><div class="flex flex-wrap gap-1.5"><span class="text-[10px] rounded-full px-2 py-1" :class="usageAttemptStatusClass(attempt.status)" x-text="usagePhaseLabel(attempt.status)"></span><span class="text-[10px] rounded-full bg-slate-100 text-slate-500 px-2 py-1" x-text="usageCoverageLabel(attempt.coverage)"></span></div></div><button x-show="attempt.project_id" @click="openProject(attempt.project_id)" class="text-[11px] text-brand-600 hover:text-brand-700 mt-2" x-text="attempt.project_id"></button><p x-show="!attempt.readings.length" class="text-xs text-slate-400 mt-3">Token metrics unavailable.</p><template x-for="(reading, readingIndex) in attempt.readings" :key="readingIndex"><div class="mt-3 border-t border-slate-100 pt-2"><p class="text-xs text-slate-600 break-words" x-text="`${reading.model || 'Unknown model'} · ${usageModelSource(reading.model_source)}`"></p><p class="text-[11px] text-slate-400 mt-1" x-text="`Cached input ${usageNumber(reading.cached_input_tokens)} · uncached input ${usageNumber(reading.uncached_input_tokens)} · output ${usageNumber(reading.output_tokens)}`"></p></div></template><p x-show="attempt.notes && attempt.notes.length" class="text-[11px] text-amber-700 mt-2 break-words" x-text="attempt.notes?.map(note => usagePhaseLabel(note)).join('; ')"></p></article></template></div>
+            <div class="flex flex-wrap justify-between items-center gap-3 mt-4"><button @click="loadUsage(Math.max(0, usageAttempts.offset - usageAttempts.limit))" :disabled="usageAttempts.offset === 0 || usageLoading" class="text-xs text-brand-600 disabled:opacity-30">Previous invocations</button><button @click="loadUsage(usageAttempts.next_offset)" :disabled="usageAttempts.next_offset === null || usageLoading" class="text-xs text-brand-600 disabled:opacity-30">Next invocations</button></div>
+          </section>
+        </template>
+        <p x-show="usageLoading && !usageSummary" class="text-sm text-slate-400 text-center py-8">Loading token usage...</p>
+        <p x-show="!usageLoading && !usageSummary && !usageError" class="text-sm text-slate-400 text-center py-8">Apply filters to load token usage.</p>
+      </div>
+    </main>
+  </div>
+</template>
+
+<!-- Workflow Trash -->
+<template x-if="view === 'workflow-trash'">
+  <div class="flex-1 flex flex-col overflow-hidden">
+    <header class="bg-white border-b border-slate-200 px-4 py-3 flex items-center gap-3 shrink-0"><button @click="backToList()" aria-label="Back to all projects" class="p-2 rounded-lg text-slate-500 hover:bg-slate-100">&larr;</button><div class="min-w-0 flex-1"><h1 class="font-semibold text-slate-700">Workflow Trash</h1><p class="text-[11px] text-slate-400">Restore workflows and their saved work</p></div><button @click="loadWorkflowTrash()" :disabled="workflowTrashLoading" class="px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-500 hover:bg-slate-50 disabled:opacity-40">Refresh</button></header>
+    <main class="flex-1 overflow-y-auto p-4 sm:p-6"><div class="max-w-5xl mx-auto space-y-4">
+      <p class="text-xs text-slate-500">Deleted workflows are paused and kept here with their graphs, files, history, and token usage. Restoring unfinished work leaves it paused until you choose Resume.</p>
+      <p x-show="workflowTrashError" x-text="workflowTrashError" role="alert" class="text-sm text-rose-600 rounded-xl border border-rose-200 bg-rose-50 p-4"></p>
+      <p x-show="workflowTrashLoading && !workflowTrash.length" class="text-sm text-slate-400 py-8 text-center">Loading Trash...</p>
+      <p x-show="!workflowTrashLoading && !workflowTrashError && !workflowTrash.length" class="text-sm text-slate-400 py-12 text-center">Trash is empty.</p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"><template x-for="item in workflowTrash" :key="item.id"><article class="rounded-2xl border border-slate-200 bg-white overflow-hidden flex flex-col"><button @click="openWorkflow(item.id)" class="text-left p-5 flex-1 hover:bg-slate-50"><h2 class="font-semibold text-slate-700 break-words" x-text="item.title"></h2><p class="text-xs text-slate-400 mt-2" x-text="`${item.completed_stage_count} of ${item.stage_count} goals completed`"></p><p class="text-[11px] text-slate-400 mt-2" x-text="`Moved to Trash ${formatDate(item.deleted_at)}`"></p></button><div class="border-t border-slate-100 px-4 py-3 flex justify-end"><button @click="restoreWorkflow(item.id)" :disabled="!!workflowActionId" class="px-3 py-1.5 rounded-lg border border-brand-200 text-xs text-brand-600 hover:bg-brand-50 disabled:opacity-40" x-text="workflowActionId === item.id ? 'Restoring...' : 'Restore'"></button></div></article></template></div>
+    </div></main>
+  </div>
+</template>
+
 <!-- Workflow view -->
 <template x-if="view === 'workflow' && workflow">
   <div class="flex-1 flex flex-col overflow-hidden">
-    <header class="bg-white border-b border-slate-200 px-4 py-3 flex items-center gap-3 shrink-0">
+    <header class="bg-white border-b border-slate-200 px-4 py-3 flex flex-wrap items-center gap-3 shrink-0">
       <button @click="backToList()" aria-label="Back to all projects" class="p-2 rounded-lg text-slate-500 hover:bg-slate-100">&larr;</button>
       <div class="min-w-0 flex-1">
         <p class="text-[10px] uppercase tracking-widest text-brand-500 font-semibold">Workflow</p>
         <h1 class="font-semibold text-slate-700 truncate" x-text="workflow.workflow.title"></h1>
       </div>
-      <span class="px-2 py-1 rounded-full text-[10px] uppercase font-semibold" :class="projectStatusBadgeClass(workflow.workflow.status)" x-text="workflow.workflow.status"></span>
-      <button x-show="workflow.workflow.status !== 'completed'" @click="toggleWorkflowStatus()" :disabled="isChangingWorkflowStatus" class="px-3 py-1.5 rounded-lg border text-xs disabled:opacity-40" :class="workflow.workflow.status === 'active' ? 'border-amber-200 text-amber-700 hover:bg-amber-50' : 'border-teal-200 text-teal-700 hover:bg-teal-50'" x-text="isChangingWorkflowStatus ? 'Saving...' : workflow.workflow.status === 'active' ? 'Stop workflow' : 'Resume workflow'"></button>
+      <span class="px-2 py-1 rounded-full text-[10px] uppercase font-semibold" :class="projectStatusBadgeClass(workflow.workflow.status)" x-text="workflowStatusLabel(workflow.workflow.status)"></span>
+      <div class="flex flex-wrap justify-end gap-2 w-full sm:w-auto">
+        <button x-show="!workflow.workflow.deleted_at && workflow.workflow.status !== 'completed'" @click="toggleWorkflowStatus()" :disabled="!!workflowActionId" class="px-3 py-1.5 rounded-lg border text-xs disabled:opacity-40" :class="workflow.workflow.status === 'active' ? 'border-amber-200 text-amber-700 hover:bg-amber-50' : 'border-teal-200 text-teal-700 hover:bg-teal-50'" x-text="workflowActionId ? 'Saving...' : workflow.workflow.status === 'active' ? 'Pause workflow' : 'Resume workflow'"></button>
+        <button x-show="!workflow.workflow.deleted_at" @click="requestWorkflowDelete(workflow.workflow.id, workflow.workflow.title)" :disabled="!!workflowActionId" class="px-3 py-1.5 rounded-lg border border-rose-200 text-xs text-rose-600 hover:bg-rose-50 disabled:opacity-40">Delete</button>
+        <button x-show="workflow.workflow.deleted_at" @click="restoreWorkflow(workflow.workflow.id)" :disabled="!!workflowActionId" class="px-3 py-1.5 rounded-lg border border-brand-200 text-xs text-brand-600 hover:bg-brand-50 disabled:opacity-40">Restore</button>
+      </div>
     </header>
     <main x-ref="workflowScroll" @scroll.passive="rememberWorkflowScroll()" class="flex-1 overflow-y-auto p-4 sm:p-6">
       <div class="max-w-5xl mx-auto space-y-5">
+        <section x-show="workflow.workflow.deleted_at" class="rounded-xl border border-amber-200 bg-amber-50 p-4"><h2 class="text-sm font-semibold text-amber-800">This workflow is in Trash</h2><p class="text-xs text-amber-800 mt-1">Its graphs, files, and history remain available to read. Restore the workflow before changing or resuming it.</p><button @click="openWorkflowTrash()" class="text-xs font-medium text-brand-600 hover:text-brand-700 mt-2">Open Trash</button></section>
         <section class="bg-white border border-slate-200 rounded-2xl p-5">
           <div class="flex flex-wrap justify-between items-center gap-3">
             <h2 class="text-sm font-semibold text-slate-700" x-text="`${workflow.stages.filter(stage => stage.status === 'completed').length} of ${workflow.stages.length} goals completed`"></h2>
@@ -444,18 +566,30 @@
           <details x-show="workflow.workflow.origin" class="mt-4 text-sm text-slate-600"><summary class="cursor-pointer text-xs font-medium text-slate-500">Starting context</summary><p class="mt-2 whitespace-pre-wrap break-words" x-text="workflow.workflow.origin"></p></details>
           <p x-show="workflow.workflow.status === 'stopped'" class="text-xs text-amber-700 mt-3">Work is paused. Completed goals and findings are retained.</p>
         </section>
-        <template x-for="(stage, index) in workflow.stages" :key="stage.id">
-          <article class="rounded-2xl border bg-white overflow-hidden" :class="stage.status === 'active' ? 'border-brand-300 shadow-sm' : 'border-slate-200'">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <template x-for="(stage, index) in workflowDisplayStages()" :key="stage.id">
+          <article class="rounded-2xl border bg-white overflow-hidden" :class="[stage.status === 'active' ? 'border-brand-300 shadow-sm' : 'border-slate-200', stage.generated_by_stage_id ? '' : 'lg:col-span-2']">
             <div class="p-5">
               <div class="flex items-start gap-3">
                 <span class="h-8 w-8 shrink-0 rounded-full flex items-center justify-center text-xs font-semibold" :class="stage.status === 'completed' ? 'bg-teal-50 text-teal-700' : stage.status === 'active' ? 'bg-brand-50 text-brand-600' : 'bg-slate-100 text-slate-500'" x-text="stage.status === 'completed' ? '✓' : index + 1"></span>
                 <div class="min-w-0 flex-1">
                   <div class="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wide text-slate-400 mb-1"><span x-text="stage.kind"></span><span x-show="stage.layer" x-text="stage.layer"></span></div>
                   <h2 class="font-semibold text-slate-700 break-words" x-text="stage.title"></h2>
+                  <p x-show="stage.generated_by_stage_id" class="text-[11px] text-brand-500 mt-1" x-text="`Generated by ${workflowStageTitle(stage.generated_by_stage_id)}`"></p>
                 </div>
-                <span class="px-2 py-1 rounded-full text-[10px] uppercase font-semibold shrink-0" :class="workflowStageStatusClass(stage.status)" x-text="stage.status"></span>
+                <span class="px-2 py-1 rounded-full text-[10px] uppercase font-semibold shrink-0" :class="workflowStageStatusClass(stage.status)" x-text="stage.pending_review_id ? 'awaiting review' : stage.status"></span>
               </div>
               <p class="text-sm text-slate-600 whitespace-pre-wrap break-words mt-4" x-text="stage.goal"></p>
+              <template x-if="stage.expansion">
+                <section class="mt-4 rounded-xl border border-brand-100 bg-brand-50/40 p-3">
+                  <h3 class="text-xs font-semibold text-brand-700">Parallel goal expansion</h3>
+                  <p class="text-xs text-slate-600 mt-1" x-text="generatedGoalSummary(stage)"></p>
+                  <p x-show="generatedGoals(stage.id).length" class="text-[11px] text-slate-400 mt-2">Generated goals can run independently. Following stages wait until all of them finish.</p>
+                </section>
+              </template>
+              <template x-if="stage.expansion_error">
+                <section role="alert" class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4"><h3 class="text-xs font-semibold text-amber-800">Generated goals need attention</h3><p class="text-sm text-amber-900 whitespace-pre-wrap break-words mt-2" x-text="stage.expansion_error"></p><p class="text-xs text-amber-800 mt-2">Inspect the stage graph and add a corrective hint before resuming the workflow.</p></section>
+              </template>
               <template x-if="stage.artifact_error">
                 <section role="alert" class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
                   <h3 class="text-xs font-semibold text-amber-800">Output files need attention</h3>
@@ -555,6 +689,7 @@
             </div>
           </article>
         </template>
+        </div>
         <p class="text-xs text-slate-400 pb-4">A stage opens when its prerequisite goals are recorded as complete. Parallel stages share the workflow's files. The agent's completion explanation is shown above each finished stage.</p>
       </div>
     </main>
@@ -571,7 +706,7 @@
     <div class="title-action-trigger flex items-center gap-2 min-w-0">
       <span class="text-[11px] font-mono text-slate-400" x-text="project.project.id"></span>
       <h2 class="text-[15px] font-semibold text-slate-700 truncate" x-text="project.project.title"></h2>
-      <button x-show="!replay.active" @click="openRenameProject(project.project.id, project.project.title)"
+      <button x-show="!replay.active && !projectWorkflowTrashed()" @click="openRenameProject(project.project.id, project.project.title)"
         class="title-action-button inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400"
         title="Rename project"
         :aria-label="`Rename ${project.project.title}`">
@@ -579,7 +714,7 @@
       </button>
       <span class="px-1.5 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-[0.12em] shrink-0"
         :class="projectStatusBadgeClass(project.project.status)"
-        x-text="project.project.status"></span>
+        x-text="project.project.pending_review_id ? 'awaiting review' : project.project.status"></span>
     </div>
     <div class="flex-1"></div>
     <div class="flex items-center gap-4 text-xs text-slate-400">
@@ -617,7 +752,7 @@
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path d="M14.25 3H7.5A2.25 2.25 0 0 0 5.25 5.25v13.5A2.25 2.25 0 0 0 7.5 21h9a2.25 2.25 0 0 0 2.25-2.25V8.25L14.25 3Z"/><path d="M14.25 3v5.25h4.5"/><path d="M8.25 12h7.5M8.25 15h5.25"/></svg>
         Snapshot
       </button>
-      <button x-show="project.project.workflow_id" @click="openWorkflow(project.project.workflow_id)" class="px-2.5 py-1 rounded-lg border border-brand-200 text-xs text-brand-600 hover:bg-brand-50 whitespace-nowrap">Workflow</button>
+      <button x-show="project.project.workflow_id" @click="openWorkflow(project.project.workflow_id)" class="px-2.5 py-1 rounded-lg border border-brand-200 text-xs text-brand-600 hover:bg-brand-50 whitespace-nowrap" x-text="projectWorkflowTrashed() ? 'Workflow in Trash' : 'Workflow'"></button>
       <template x-if="!replay.active && !project.project.workflow_id && project.project.status !== 'completed'">
         <button @click="toggleProjectStop()"
           class="px-2.5 py-1 rounded-lg border text-xs transition flex items-center gap-1.5"
@@ -962,6 +1097,17 @@
 
 <!-- ═══════════ MODALS ═══════════ -->
 
+<!-- Delete workflow -->
+<div x-show="showWorkflowDeleteModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center overlay p-3" @click.self="!workflowActionId && (showWorkflowDeleteModal = false)">
+  <section role="dialog" aria-modal="true" aria-labelledby="delete-workflow-title" class="rounded-2xl border border-slate-200 bg-white shadow-2xl w-full max-w-lg p-5" @click.stop>
+    <h2 id="delete-workflow-title" class="font-semibold text-slate-700">Move workflow to Trash?</h2>
+    <p class="text-sm font-medium text-slate-600 mt-3 break-words" x-text="workflowDeleteTarget.title"></p>
+    <p class="text-sm text-slate-500 mt-3">Running work will be paused. Graphs, files, history, and token usage are kept. You can restore this workflow from Trash; unfinished work stays paused until you resume it.</p>
+    <p x-show="workflowDeleteError" x-text="workflowDeleteError" role="alert" class="text-xs text-rose-600 mt-3"></p>
+    <div class="flex justify-end gap-2 mt-5"><button @click="showWorkflowDeleteModal = false" :disabled="!!workflowActionId" class="px-4 py-2 text-sm text-slate-500 hover:bg-slate-50 rounded-xl disabled:opacity-40">Cancel</button><button @click="confirmWorkflowDelete()" :disabled="!!workflowActionId" class="px-4 py-2 text-sm bg-rose-500 text-white hover:bg-rose-600 rounded-xl disabled:opacity-40" x-text="workflowActionId ? 'Moving...' : 'Move to Trash'"></button></div>
+  </section>
+</div>
+
 <!-- New workflow -->
 <div x-show="showNewWorkflow" x-cloak class="fixed inset-0 z-50 flex items-center justify-center overlay p-3 sm:p-6" @click.self="!isCreatingWorkflow && (showNewWorkflow = false)">
   <section role="dialog" aria-modal="true" aria-labelledby="new-workflow-title" class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-full flex flex-col border border-slate-200 overflow-hidden" @click.stop>
@@ -1001,12 +1147,18 @@
                 <label class="block text-xs text-slate-500">Type<select x-model="stage.kind" :aria-label="`Stage ${index + 1} type`" class="block w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white"><option value="research">Research</option><option value="work">Work</option><option value="synthesis">Synthesis</option><option value="review">Review</option></select></label>
                 <label class="block text-xs text-slate-500">Layer label, optional<input x-model="stage.layer" :aria-label="`Stage ${index + 1} layer`" placeholder="Evidence, drafting, validation..." class="block w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white"></label>
               </div>
+              <label class="flex items-center gap-2 text-xs text-slate-500"><input type="checkbox" x-model="stage.verification_enabled" class="rounded border-slate-300">Require another agent to verify completion. Generated goals inherit this setting.</label>
               <label class="flex items-center gap-2 text-xs text-slate-500"><input type="checkbox" x-model="stage.bootstrap_enabled" class="rounded border-slate-300">Try the stage goal directly first</label>
+              <div class="border-t border-slate-200 pt-3">
+                <label class="flex items-center gap-2 text-xs font-medium text-slate-600"><input type="checkbox" x-model="stage.expansion_enabled" @change="if (stage.expansion_enabled && !stage.max_goals) stage.max_goals = 16" class="rounded border-slate-300">Generate parallel goals when this stage finishes</label>
+                <div x-show="stage.expansion_enabled" class="mt-3 space-y-2"><label class="block text-xs text-slate-500">Maximum generated goals<input type="number" min="1" max="64" step="1" x-model.number="stage.max_goals" :aria-label="`Stage ${index + 1} maximum generated goals`" class="block w-24 mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white"></label><p class="text-[11px] text-slate-400">The agent proposes independent goals from its findings. Stages that depend on this stage also wait for all generated goals.</p></div>
+              </div>
             </div>
           </details>
         </section>
       </template>
       <button @click="addWorkflowStage()" class="w-full py-2.5 rounded-xl border border-dashed border-brand-200 text-sm text-brand-600 hover:bg-brand-50">+ Add stage</button>
+      <p class="text-[11px] text-slate-400">New stages start independently. Use Starts after to create a chain or join.</p>
       <details class="border-t border-slate-100 pt-3">
         <summary class="text-xs text-slate-500 cursor-pointer">Optional details and examples</summary>
         <div class="space-y-3 mt-3">
@@ -1037,6 +1189,10 @@
           <label class="block text-xs font-medium text-slate-500">Title, optional<input x-model="newProject.title" placeholder="Leave blank for an automatic title" class="block mt-1 w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400 transition placeholder:text-slate-300"></label>
           <label class="block text-xs font-medium text-slate-500">Starting context, optional<textarea x-model="newProject.origin" placeholder="Add any background or materials the agent should start with." rows="2" class="block mt-1 w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400 transition placeholder:text-slate-300"></textarea></label>
       <label class="flex items-center gap-2 px-1 text-sm text-slate-600">
+        <input type="checkbox" x-model="newProject.verification_enabled" class="h-4 w-4 rounded border-slate-300 text-brand-500">
+        Require another agent to verify completion
+      </label>
+      <label class="flex items-center gap-2 text-xs text-slate-500">
         <input type="checkbox" x-model="newProject.bootstrap" class="h-4 w-4 rounded border-slate-300 text-brand-500 focus:ring-brand-200">
         <span>Try the goal directly first</span>
       </label>
@@ -1127,13 +1283,20 @@
         </div>
       </div>
       <textarea x-model="completeForm.description" placeholder="Why is the goal met?" rows="2" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400 transition placeholder:text-slate-300"></textarea>
+      <template x-if="project && project.expansion">
+        <section class="rounded-xl border border-brand-100 bg-brand-50/40 p-3 space-y-2">
+          <label class="block text-xs font-medium text-slate-600">Generated child goals, one per line<textarea x-model="completeForm.goals_text" :disabled="completeForm.no_child_goals" rows="3" placeholder="Investigate the first question&#10;Investigate the second question" class="block mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white disabled:opacity-40"></textarea></label>
+          <p class="text-[11px] text-slate-400" x-text="`Up to ${project.expansion.max_goals} independent goals. Following stages wait for all of them.`"></p>
+          <label class="flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" x-model="completeForm.no_child_goals" class="rounded border-slate-300">Complete this stage without generating child goals</label>
+        </section>
+      </template>
       <div class="px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-500">
         Actor: <span class="font-medium text-slate-700" x-text="actorName()"></span>
       </div>
     </div>
     <div class="flex justify-end gap-2 mt-5">
       <button @click="showCompleteModal = false" class="px-4 py-2 text-sm text-slate-500 hover:bg-slate-50 rounded-xl transition">Cancel</button>
-      <button @click="completeProject()" :disabled="selectedFacts.length === 0 || !completeForm.description"
+      <button @click="completeProject()" :disabled="!completionFormValid()"
         class="px-5 py-2 text-sm bg-teal-500 text-white rounded-xl font-medium hover:bg-teal-600 transition disabled:opacity-30 shadow-sm shadow-teal-200">Complete</button>
     </div>
   </div>
@@ -1220,6 +1383,39 @@
       <button @click="saveLocalSettings()" class="px-4 py-2 text-sm bg-slate-800 text-white rounded-xl font-medium hover:bg-slate-900 transition shadow-sm">Save Local</button>
     </div>
   </div>
+</div>
+
+<!-- Execution -->
+<div x-show="showExecution" x-cloak class="fixed inset-0 z-50 flex items-center justify-center overlay p-3 sm:p-6" @click.self="!isSavingRuntime && (showExecution = false)">
+  <section role="dialog" aria-modal="true" aria-labelledby="execution-title" class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-full flex flex-col border border-slate-200 overflow-hidden" @click.stop>
+    <header class="p-5 border-b border-slate-100 shrink-0"><div class="flex flex-wrap justify-between items-center gap-2"><h2 id="execution-title" class="font-semibold text-slate-700">Execution and concurrency</h2><span class="rounded-full px-2 py-1 text-[10px] font-medium" :class="runtimeStatusClass()" x-text="runtimeStatusLabel()"></span></div><p class="text-xs text-slate-500 mt-2">Limits apply independently to each dispatcher. Leave a field blank to use that dispatcher's YAML configuration.</p></header>
+    <div class="p-5 space-y-5 overflow-y-auto flex-1">
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <template x-for="limit in runtimeLimits" :key="limit.key"><label class="block text-xs font-medium text-slate-600"><span x-text="limit.label"></span><input type="number" min="1" max="256" step="1" x-model="runtimeForm[limit.key]" :aria-label="limit.label" placeholder="Use YAML" class="block mt-2 w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-100"><span class="block text-[11px] font-normal text-slate-400 mt-2" x-text="limit.help"></span></label></template>
+      </div>
+      <p class="text-xs text-slate-500">Saving updates the policy. A dispatcher must report the applied limits before they are shown as live. Lower limits do not interrupt tasks already running.</p>
+      <p x-show="runtimeError || runtimeLoadError" x-text="runtimeError || runtimeLoadError" role="alert" class="text-sm text-rose-600 whitespace-pre-wrap break-words"></p>
+      <template x-if="runtime">
+        <section class="border-t border-slate-100 pt-4">
+          <h3 class="text-sm font-semibold text-slate-700">Dispatchers and worker pools</h3>
+          <p x-show="!runtime.dispatchers.length" class="text-xs text-slate-500 mt-3">No dispatcher has connected. Saved settings will wait until one starts.</p>
+          <div class="space-y-4 mt-3">
+            <template x-for="dispatcher in runtime.dispatchers" :key="dispatcher.id">
+              <section class="rounded-xl border border-slate-200 p-4">
+                <div class="flex flex-wrap items-start justify-between gap-2"><div class="min-w-0"><h4 class="text-xs font-semibold font-mono text-slate-600 break-all" x-text="dispatcher.id"></h4><p class="text-[11px] text-slate-400 mt-1" x-text="`Last report ${formatTime(dispatcher.last_seen)}`"></p></div><div class="flex flex-wrap gap-1.5"><span class="text-[10px] rounded-full px-2 py-1 font-medium" :class="dispatcher.online ? 'bg-teal-50 text-teal-700' : 'bg-slate-100 text-slate-500'" x-text="dispatcher.online ? 'Online' : 'Stale / offline'"></span><span x-show="dispatcher.pending" class="text-[10px] rounded-full px-2 py-1 font-medium bg-amber-50 text-amber-700">Saved changes pending</span></div></div>
+                <p class="text-xs text-slate-600 mt-3" x-text="`${dispatcher.counts.running_projects} projects with running tasks · ${dispatcher.counts.admitted_projects} admitted · ${dispatcher.counts.running_tasks} worker tasks running`"></p>
+                <div class="overflow-x-auto mt-3"><table class="w-full text-left text-xs"><thead class="text-slate-400"><tr><th class="font-medium pb-2 pr-3">Limit</th><th class="font-medium pb-2 px-2">YAML</th><th class="font-medium pb-2 px-2">Reported</th><th class="font-medium pb-2 pl-2">Desired</th></tr></thead><tbody><template x-for="limit in runtimeLimits" :key="limit.key"><tr class="border-t border-slate-100"><th class="font-medium text-slate-600 py-2 pr-3" x-text="limit.label"></th><td class="text-slate-500 px-2" x-text="dispatcher.configured[limit.key]"></td><td class="text-slate-700 font-semibold px-2" x-text="dispatcher.effective[limit.key]"></td><td class="text-slate-500 pl-2" x-text="dispatcher.desired[limit.key]"></td></tr></template></tbody></table></div>
+                <p x-show="!dispatcher.online" class="text-[11px] text-amber-700 mt-2">Reported limits and task counts are the last snapshot. This dispatcher is not currently reporting.</p>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-4 text-xs"><div class="rounded-lg bg-slate-50 p-3"><span class="block text-slate-400">Worker pool slots</span><strong class="block text-slate-700 mt-1" x-text="dispatcher.worker_capacity"></strong></div><div class="rounded-lg bg-slate-50 p-3"><span class="block text-slate-400">Effective task capacity</span><strong class="block text-slate-700 mt-1" x-text="dispatcher.effective_worker_capacity"></strong></div><div class="rounded-lg bg-slate-50 p-3"><span class="block text-slate-400">Slots available now</span><strong class="block text-slate-700 mt-1" x-text="dispatcher.available_worker_slots"></strong></div></div>
+                <div class="mt-3 space-y-2"><template x-for="worker in dispatcher.workers" :key="worker.name"><div class="rounded-lg border border-slate-100 px-3 py-2"><div class="flex flex-wrap items-center justify-between gap-2"><span class="text-xs font-medium text-slate-600 break-all" x-text="worker.name"></span><span class="text-[11px] text-slate-400" x-text="`${worker.running}/${worker.max_running} slots in use${worker.cooldown ? ' · cooling down' : ''}`"></span></div><p class="text-[11px] text-slate-400 mt-1" x-text="`${worker.type} · ${worker.task_types.join(', ')}`"></p></div></template></div>
+              </section>
+            </template>
+          </div>
+        </section>
+      </template>
+    </div>
+    <footer class="p-4 border-t border-slate-100 flex flex-wrap justify-between gap-2 shrink-0"><button @click="saveRuntimeSettings(true)" :disabled="isSavingRuntime" class="px-3 py-2 text-xs text-slate-500 border border-slate-200 hover:bg-slate-50 rounded-xl disabled:opacity-40">Use YAML defaults</button><div class="flex gap-2"><button @click="showExecution = false" :disabled="isSavingRuntime" class="px-3 py-2 text-sm text-slate-500 hover:bg-slate-50 rounded-xl disabled:opacity-40">Close</button><button @click="saveRuntimeSettings()" :disabled="!runtimeFormValid() || isSavingRuntime" class="px-4 py-2 text-sm bg-brand-500 text-white rounded-xl font-medium hover:bg-brand-600 disabled:opacity-40" x-text="isSavingRuntime ? 'Saving...' : 'Save limits'"></button></div></footer>
+  </section>
 </div>
 
 <!-- Settings -->
@@ -1311,7 +1507,18 @@ function cairnApp() {
   return {
     view: 'list',
     projects: [],
+    reviews: [],
+    reviewError: '',
+    reviewDetails: {},
+    reviewPage: {offset:0,limit:20,total:0,next_offset:null},
     workflows: [],
+    workflowTrash: [],
+    workflowTrashLoading: false,
+    workflowTrashError: '',
+    workflowActionId: '',
+    showWorkflowDeleteModal: false,
+    workflowDeleteTarget: {id:'',title:''},
+    workflowDeleteError: '',
     workflow: null,
     selectedWorkflowId: '',
     showNewWorkflow: false,
@@ -1319,6 +1526,33 @@ function cairnApp() {
     isChangingWorkflowStatus: false,
     workflowFormError: '',
     workflowScrollPositions: {},
+    runtime: null,
+    showExecution: false,
+    isSavingRuntime: false,
+    runtimeError: '',
+    runtimeLoadError: '',
+    runtimeForm: {max_workers:'',max_running_projects:'',max_project_workers:''},
+    runtimeLimits: [
+      {key:'max_running_projects',label:'Parallel projects',help:'How many projects each dispatcher may run at once.'},
+      {key:'max_workers',label:'Worker tasks',help:'Total worker tasks each dispatcher may run at once.'},
+      {key:'max_project_workers',label:'Workers per project',help:'Maximum concurrent worker tasks within one project.'},
+    ],
+    usageSummary: null,
+    usageAttempts: null,
+    usageFilters: {window:'7d',since:'',until:'',project_id:''},
+    usageOffset: 0,
+    usageLoading: false,
+    usageActive: false,
+    usageError: '',
+    usageLastUpdated: '',
+    usageLoadedFilterKey: '',
+    usageRequestVersion: 0,
+    usageMetrics: [
+      {key:'cached_input_tokens',label:'Cached input'},
+      {key:'uncached_input_tokens',label:'Uncached input'},
+      {key:'cache_write_input_tokens',label:'Cache writes'},
+      {key:'output_tokens',label:'Output'},
+    ],
     stageHistory: {},
     emptyStageHistory: {index:null,selectedSource:null,facts:null,selectedFact:null,loadingIndex:false,loadingFacts:false,loadingFact:false,error:''},
     workflowStageSequence: 1,
@@ -1352,10 +1586,10 @@ function cairnApp() {
     exportProjectId: '',
     showDeleteModal: false,
 
-    newProject: { title: '', origin: '', goal: '', bootstrap: true, hints: [{ content: '' }] },
+    newProject: { verification_enabled: false, title: '', origin: '', goal: '', bootstrap: true, hints: [{ content: '' }] },
     intentForm: { description: '' },
     concludeForm: { description: '', intentId: '' },
-    completeForm: { description: '' },
+    completeForm: { description: '', goals_text: '', no_child_goals: false },
     hintForm: { content: '' },
     reopenForm: { projectId: '', projectTitle: '', description: '' },
     renameForm: { projectId: '', originalTitle: '', title: '' },
@@ -1393,6 +1627,7 @@ function cairnApp() {
       await this.loadProjects();
       await this.loadWorkflows();
       await this.loadSettings();
+      await this.loadRuntime();
       this.startPolling();
       window.addEventListener('hashchange', () => this.handleRoute());
       this.handleRoute();
@@ -1400,6 +1635,18 @@ function cairnApp() {
 
     handleRoute() {
       const hash = location.hash || '#/';
+      if (hash === '#/workflow-trash') {
+        if (this.view !== 'workflow-trash') this.openWorkflowTrash();
+        return;
+      }
+      if (hash === '#/reviews') {
+        if (this.view !== 'reviews') this.openReviews();
+        return;
+      }
+      if (hash === '#/usage') {
+        if (this.view !== 'usage') this.openUsage();
+        return;
+      }
       const workflowMatch = hash.match(/^#\/workflows\/([^/]+)$/);
       if (workflowMatch) {
         const id = decodeURIComponent(workflowMatch[1]);
@@ -1567,7 +1814,15 @@ function cairnApp() {
     },
 
     projectIsActive() {
-      return !this.replay.active && this.project?.project?.status === 'active';
+      return !this.replay.active && !this.projectWorkflowTrashed() && this.project?.project?.status === 'active';
+    },
+
+    projectWorkflowTrashed() {
+      return !!this.project?.workflow_deleted_at;
+    },
+
+    workflowStatusLabel(status) {
+      return status === 'stopped' ? 'paused' : status;
     },
 
     countProjectsByStatus(status) {
@@ -1579,7 +1834,7 @@ function cairnApp() {
     },
 
     projectCanWriteHints() {
-      return !this.replay.active && ['active', 'stopped', 'completed'].includes(this.project?.project?.status);
+      return !this.replay.active && !this.projectWorkflowTrashed() && ['active', 'stopped', 'completed'].includes(this.project?.project?.status);
     },
 
     canActOnSelectedFacts() {
@@ -1598,6 +1853,302 @@ function cairnApp() {
       try { this.workflows = await this.api('GET', '/workflows'); } catch(e) { console.error(e); }
     },
 
+    async loadWorkflowTrash() {
+      if (this.workflowTrashLoading) return;
+      this.workflowTrashLoading = true;
+      try {
+        this.workflowTrash = await this.api('GET', '/workflow-trash');
+        this.workflowTrashError = '';
+      } catch(e) { this.workflowTrashError = e.message; }
+      finally { this.workflowTrashLoading = false; }
+    },
+
+    async openWorkflowTrash() {
+      this.rememberWorkflowScroll();
+      this.stopReplayTimer();
+      this.replay.active = false;
+      this.replay.playing = false;
+      if (this.view === 'usage') this.cancelUsageLoad();
+      this.teardownAutoFit();
+      if (this.cy) { this.cy.destroy(); this.cy = null; }
+      this.selectedProjectId = '';
+      this.selectedWorkflowId = '';
+      this.project = null;
+      this.workflow = null;
+      this.polling = true;
+      this.view = 'workflow-trash';
+      if (location.hash !== '#/workflow-trash') location.hash = '/workflow-trash';
+      await this.loadWorkflowTrash();
+    },
+
+    requestWorkflowDelete(id, title) {
+      if (this.workflowActionId) return;
+      this.workflowDeleteTarget = {id,title};
+      this.workflowDeleteError = '';
+      this.showWorkflowDeleteModal = true;
+    },
+
+    async confirmWorkflowDelete() {
+      const id = this.workflowDeleteTarget.id;
+      if (!id || this.workflowActionId) return;
+      this.workflowActionId = id;
+      this.workflowDeleteError = '';
+      try {
+        await this.api('DELETE', `/workflows/${encodeURIComponent(id)}`);
+        this.showWorkflowDeleteModal = false;
+        await Promise.all([this.loadProjects(),this.loadWorkflows(),this.loadWorkflowTrash()]);
+        if (this.view === 'workflow' && this.selectedWorkflowId === id) await this.openWorkflowTrash();
+        this.showToast('Workflow moved to Trash');
+      } catch(e) { this.workflowDeleteError = e.message; }
+      finally { this.workflowActionId = ''; }
+    },
+
+    async restoreWorkflow(id) {
+      if (!id || this.workflowActionId) return;
+      this.workflowActionId = id;
+      try {
+        const updated = await this.api('POST', `/workflows/${encodeURIComponent(id)}/restore`);
+        if (this.view === 'workflow' && this.selectedWorkflowId === id) this.workflow = updated;
+        await Promise.all([this.loadProjects(),this.loadWorkflows(),this.loadWorkflowTrash()]);
+        this.showToast(updated.workflow.status === 'completed' ? 'Completed workflow restored' : 'Workflow restored, still paused');
+      } catch(e) {
+        this.workflowTrashError = e.message;
+        this.showToast(e.message, 'error');
+      } finally { this.workflowActionId = ''; }
+    },
+
+    async changeWorkflowStatus(id, currentStatus) {
+      if (!id || currentStatus === 'completed' || this.workflowActionId) return;
+      this.workflowActionId = id;
+      this.isChangingWorkflowStatus = true;
+      try {
+        const status = currentStatus === 'active' ? 'stopped' : 'active';
+        const updated = await this.api('PUT', `/workflows/${encodeURIComponent(id)}/status`, {status});
+        if (this.selectedWorkflowId === id) this.workflow = updated;
+        await Promise.all([this.loadProjects(),this.loadWorkflows()]);
+        this.showToast(status === 'stopped' ? 'Workflow paused' : 'Workflow resumed');
+      } catch(e) { this.showToast(e.message, 'error'); }
+      finally { this.workflowActionId = ''; this.isChangingWorkflowStatus = false; }
+    },
+
+    async openReviews() {
+      this.rememberWorkflowScroll();
+      this.stopReplayTimer();
+      this.replay.active = false;
+      this.replay.playing = false;
+      if (this.view === 'usage') this.cancelUsageLoad();
+      this.teardownAutoFit();
+      if (this.cy) { this.cy.destroy(); this.cy = null; }
+      this.selectedProjectId = '';
+      this.selectedWorkflowId = '';
+      this.project = null;
+      this.workflow = null;
+      this.polling = true;
+      this.view = 'reviews';
+      if (location.hash !== '#/reviews') location.hash = '/reviews';
+      this.reviewDetails = {};
+      await this.loadReviews(0);
+    },
+
+    async loadReviews(offset = this.reviewPage.offset) {
+      try {
+        const page = await this.api('GET', `/reviews?limit=20&offset=${offset}`);
+        this.reviews = page.items;
+        this.reviewPage = page;
+        this.reviewError = '';
+      } catch (e) { this.reviewError = e.message; }
+    },
+
+    async loadReviewDetail(id) {
+      if (this.reviewDetails[id]) { delete this.reviewDetails[id]; return; }
+      try { this.reviewDetails[id] = await this.api('GET', `/reviews/${encodeURIComponent(id)}`); }
+      catch (e) { this.reviewError = e.message; }
+    },
+
+    async openUsage() {
+      this.rememberWorkflowScroll();
+      this.stopReplayTimer();
+      this.replay.active = false;
+      this.replay.playing = false;
+      this.polling = true;
+      this.teardownAutoFit();
+      if (this.cy) { this.cy.destroy(); this.cy = null; }
+      this.selectedProjectId = '';
+      this.project = null;
+      this.selectedWorkflowId = '';
+      this.workflow = null;
+      this.view = 'usage';
+      this.usageActive = true;
+      if (location.hash !== '#/usage') location.hash = '/usage';
+      await this.loadUsage(0);
+    },
+
+    cancelUsageLoad() {
+      this.usageActive = false;
+      this.usageRequestVersion += 1;
+      this.usageLoading = false;
+    },
+
+    usageWindowValid() {
+      if (this.usageFilters.window !== 'custom') return true;
+      const since = this.usageFilters.since ? new Date(this.usageFilters.since).getTime() : null;
+      const until = this.usageFilters.until ? new Date(this.usageFilters.until).getTime() : null;
+      return (since === null || Number.isFinite(since)) && (until === null || Number.isFinite(until)) && (since === null || until === null || since < until);
+    },
+
+    usageFiltersDirty() {
+      return !!this.usageLoadedFilterKey && this.usageLoadedFilterKey !== JSON.stringify(this.usageFilters);
+    },
+
+    usageQuery(now = Date.now()) {
+      const filters = this.usageFilters;
+      const query = [];
+      if (filters.project_id) query.push(`project_id=${encodeURIComponent(filters.project_id)}`);
+      if (filters.window === 'custom') {
+        if (filters.since) query.push(`since=${encodeURIComponent(new Date(filters.since).toISOString())}`);
+        if (filters.until) query.push(`until=${encodeURIComponent(new Date(filters.until).toISOString())}`);
+      } else if (filters.window !== 'all') {
+        const milliseconds = {'24h':86400000,'7d':604800000,'30d':2592000000}[filters.window];
+        query.push(`since=${encodeURIComponent(new Date(now - milliseconds).toISOString())}`);
+        query.push(`until=${encodeURIComponent(new Date(now).toISOString())}`);
+      }
+      return query.join('&');
+    },
+
+    async loadUsage(offset = 0, fromPolling = false) {
+      if (offset === null || !this.usageWindowValid() || (fromPolling && (!this.usageActive || this.usageLoading || this.usageFiltersDirty()))) return;
+      const request = ++this.usageRequestVersion;
+      const filterKey = JSON.stringify(this.usageFilters);
+      const query = this.usageQuery();
+      this.usageLoading = true;
+      this.usageError = '';
+      try {
+        const [summary, attempts] = await Promise.all([
+          this.api('GET', `/usage/summary${query ? '?' + query : ''}`),
+          this.api('GET', `/usage/attempts?${query ? query + '&' : ''}offset=${offset}&limit=20`),
+        ]);
+        if (this.usageRequestVersion !== request || JSON.stringify(this.usageFilters) !== filterKey) return;
+        this.usageSummary = summary;
+        this.usageAttempts = attempts;
+        this.usageOffset = attempts.offset;
+        this.usageLoadedFilterKey = filterKey;
+        this.usageLastUpdated = new Date().toISOString();
+      } catch(e) {
+        if (this.usageRequestVersion === request && JSON.stringify(this.usageFilters) === filterKey) this.usageError = `Token usage could not be loaded. ${e.message}`;
+      } finally {
+        if (this.usageRequestVersion === request) this.usageLoading = false;
+      }
+    },
+
+    usageNumber(value) {
+      return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString() : 'Unavailable';
+    },
+
+    usageReportedTotal(row) {
+      return Number.isFinite(row.input_tokens) && Number.isFinite(row.output_tokens) ? row.input_tokens + row.output_tokens : null;
+    },
+
+    usageMetricCoverage(row, metric) {
+      if (row[metric] === null || row[metric] === undefined) return 'Not reported';
+      const count = row.metric_reports?.[metric];
+      return Number.isFinite(count) ? `${count} report${count === 1 ? '' : 's'}` : 'Reported';
+    },
+
+    usageReporterCount(metric) {
+      const reporters = this.usageSummary?.reporting?.reporters;
+      if (!reporters?.length || !reporters.every(reporter => Number.isFinite(reporter[metric]))) return null;
+      return reporters.reduce((total, reporter) => total + reporter[metric], 0);
+    },
+
+    usageModelKey(row) {
+      return `${row.worker_type}|${row.model_source}|${row.model ?? ''}`;
+    },
+
+    usageModelSource(source) {
+      if (source === 'reported') return 'Reported model';
+      if (source === 'configured') return 'Configured model only';
+      return 'Model not reported';
+    },
+
+    usagePhaseLabel(value) {
+      return String(value || 'Unknown').replaceAll('_', ' ');
+    },
+
+    usageCoverageLabel(coverage) {
+      if (coverage === 'reported') return 'Token report available';
+      if (coverage === 'partial') return 'Partial token report';
+      return 'No token report';
+    },
+
+    usageAttemptStatusClass(status) {
+      if (status === 'success') return 'bg-teal-50 text-teal-700';
+      if (status === 'cancelled' || status === 'timed_out') return 'bg-amber-50 text-amber-700';
+      return 'bg-rose-50 text-rose-700';
+    },
+
+    async loadRuntime(resetForm = false) {
+      try {
+        this.runtime = await this.api('GET', '/runtime');
+        if (resetForm) for (const limit of this.runtimeLimits) this.runtimeForm[limit.key] = this.runtime.settings[limit.key] ?? '';
+        this.runtimeLoadError = '';
+        if (resetForm) this.runtimeError = '';
+      } catch(e) { this.runtimeLoadError = e.message; }
+    },
+
+    async openExecution() {
+      this.showExecution = true;
+      await this.loadRuntime(true);
+    },
+
+    runtimeStatusLabel() {
+      if (!this.runtime || this.runtimeLoadError) return 'Unavailable';
+      const online = this.runtime.dispatchers.filter(dispatcher => dispatcher.online);
+      if (!online.length) return 'No dispatcher online';
+      if (online.some(dispatcher => dispatcher.pending)) return 'Changes pending';
+      return 'Live';
+    },
+
+    runtimeStatusClass() {
+      if (!this.runtime || this.runtimeLoadError || !this.runtime.dispatchers.some(dispatcher => dispatcher.online)) return 'bg-slate-100 text-slate-500';
+      if (this.runtime.dispatchers.some(dispatcher => dispatcher.online && dispatcher.pending)) return 'bg-amber-50 text-amber-700';
+      return 'bg-teal-50 text-teal-700';
+    },
+
+    runtimeSummary() {
+      if (this.runtimeLoadError) return 'Dispatcher status could not be refreshed.';
+      if (!this.runtime) return 'Open execution settings to check dispatcher status.';
+      const online = this.runtime.dispatchers.filter(dispatcher => dispatcher.online);
+      if (!online.length) return 'Saved limits take effect when a dispatcher connects.';
+      if (online.length > 1) return `${online.length} dispatchers online. Limits apply independently to each.`;
+      const dispatcher = online[0];
+      return `${dispatcher.counts.admitted_projects}/${dispatcher.effective.max_running_projects} admitted projects · ${dispatcher.counts.running_tasks}/${dispatcher.effective_worker_capacity} worker tasks · ${dispatcher.effective.max_project_workers} workers per project`;
+    },
+
+    runtimeFormValid() {
+      return this.runtimeLimits.every(limit => {
+        const value = this.runtimeForm[limit.key];
+        return value === '' || value === null || (Number.isInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 256);
+      });
+    },
+
+    async saveRuntimeSettings(reset = false) {
+      if ((!reset && !this.runtimeFormValid()) || this.isSavingRuntime) return;
+      this.isSavingRuntime = true;
+      this.runtimeError = '';
+      try {
+        const settings = {};
+        for (const limit of this.runtimeLimits) {
+          const value = this.runtimeForm[limit.key];
+          settings[limit.key] = reset || value === '' || value === null ? null : Number(value);
+        }
+        this.runtime = await this.api('PUT', '/runtime/settings', settings);
+        this.runtimeLoadError = '';
+        for (const limit of this.runtimeLimits) this.runtimeForm[limit.key] = this.runtime.settings[limit.key] ?? '';
+        this.showToast('Execution limits saved');
+      } catch(e) { this.runtimeError = e.message; }
+      finally { this.isSavingRuntime = false; }
+    },
+
     async loadWorkflow(id) {
       try {
         const data = await this.api('GET', `/workflows/${encodeURIComponent(id)}`);
@@ -1611,6 +2162,7 @@ function cairnApp() {
 
     async openWorkflow(id) {
       if (!id) return;
+      if (this.view === 'usage') this.cancelUsageLoad();
       this.rememberWorkflowScroll();
       this.selectedWorkflowId = id;
       const data = await this.loadWorkflow(id);
@@ -1656,6 +2208,31 @@ function cairnApp() {
 
     workflowStageTitle(id) {
       return this.workflow?.stages.find(stage => stage.id === id)?.title || id;
+    },
+
+    workflowDisplayStages() {
+      const remaining = [...(this.workflow?.stages || [])];
+      const ordered = [];
+      const seen = new Set();
+      while (remaining.length) {
+        const index = remaining.findIndex(stage => stage.depends_on.every(id => seen.has(id)));
+        if (index < 0) return [...ordered, ...remaining];
+        const [stage] = remaining.splice(index, 1);
+        ordered.push(stage);
+        seen.add(stage.id);
+      }
+      return ordered;
+    },
+
+    generatedGoals(stageId) {
+      return this.workflow?.stages.filter(stage => stage.generated_by_stage_id === stageId) || [];
+    },
+
+    generatedGoalSummary(stage) {
+      const goals = this.generatedGoals(stage.id);
+      if (goals.length) return `${goals.filter(goal => goal.status === 'completed').length} of ${goals.length} generated goals completed`;
+      if (stage.status === 'completed') return 'Completed without generating additional goals.';
+      return `May generate up to ${stage.expansion.max_goals} independent goals on completion.`;
     },
 
     historyState(projectId) {
@@ -1777,23 +2354,15 @@ function cairnApp() {
     },
 
     async toggleWorkflowStatus() {
-      if (!this.workflow || this.workflow.workflow.status === 'completed' || this.isChangingWorkflowStatus) return;
-      this.isChangingWorkflowStatus = true;
-      try {
-        const id = this.workflow.workflow.id;
-        const status = this.workflow.workflow.status === 'active' ? 'stopped' : 'active';
-        const updated = await this.api('PUT', `/workflows/${encodeURIComponent(id)}/status`, {status});
-        if (this.selectedWorkflowId === id) this.workflow = updated;
-        await Promise.all([this.loadProjects(), this.loadWorkflows()]);
-        this.showToast(status === 'stopped' ? 'Workflow stopped' : 'Workflow resumed');
-      } catch(e) { this.showToast(e.message, 'error'); }
-      finally { this.isChangingWorkflowStatus = false; }
+      if (!this.workflow || this.workflow.workflow.deleted_at) return;
+      await this.changeWorkflowStatus(this.workflow.workflow.id, this.workflow.workflow.status);
     },
 
     workflowFormValid() {
       return this.newWorkflow.stages.length > 0
         && this.newWorkflow.stages.every(stage => (stage.goal.trim() || stage.artifacts.length > 0)
-          && stage.artifacts.every(artifact => artifact.path.trim()));
+          && stage.artifacts.every(artifact => artifact.path.trim())
+          && (!stage.expansion_enabled || (Number.isInteger(Number(stage.max_goals)) && Number(stage.max_goals) >= 1 && Number(stage.max_goals) <= 64)));
     },
 
     workflowDraftStageTitle(stage) {
@@ -1808,7 +2377,7 @@ function cairnApp() {
     addWorkflowStage() {
       const stages = this.newWorkflow.stages;
       this.workflowStageSequence += 1;
-      stages.push({ id: `stage_${this.workflowStageSequence}`, title: '', goal: '', kind: 'work', layer: '', depends_on: stages.length ? [stages[stages.length - 1].id] : [], bootstrap_enabled: true, artifacts: [] });
+      stages.push({ id: `stage_${this.workflowStageSequence}`, title: '', goal: '', kind: 'work', layer: '', depends_on: [], bootstrap_enabled: true, artifacts: [] });
     },
 
     removeWorkflowStage(id) {
@@ -1857,8 +2426,9 @@ function cairnApp() {
           ...(this.newWorkflow.origin.trim() ? {origin:this.newWorkflow.origin.trim()} : {}),
           stages: this.newWorkflow.stages.map(stage => ({
             id: stage.id, ...(stage.title.trim() ? {title:stage.title.trim()} : {}), goal: stage.goal.trim(), kind: stage.kind,
-            layer: stage.layer.trim() || null, depends_on: [...stage.depends_on], bootstrap_enabled: stage.bootstrap_enabled,
+            layer: stage.layer.trim() || null, depends_on: [...stage.depends_on], bootstrap_enabled: stage.bootstrap_enabled, verification_enabled: !!stage.verification_enabled,
             artifacts: stage.artifacts.map(artifact => ({path:artifact.path.trim(),label:artifact.label.trim() || null})),
+            ...(stage.expansion_enabled ? {expansion:{max_goals:Number(stage.max_goals)}} : {}),
           })),
         });
         this.showNewWorkflow = false;
@@ -2610,6 +3180,7 @@ function cairnApp() {
     },
 
     async openProject(id) {
+      if (this.view === 'usage') this.cancelUsageLoad();
       this.rememberWorkflowScroll();
       if (this.replay.active) {
         this.stopReplayTimer();
@@ -2644,6 +3215,7 @@ function cairnApp() {
     },
 
     backToList(fromRoute) {
+      if (this.view === 'usage') this.cancelUsageLoad();
       this.rememberWorkflowScroll();
       if (this.replay.active) {
         this.stopReplayTimer();
@@ -2674,7 +3246,14 @@ function cairnApp() {
 
     startPolling() {
       this.pollTimer = setInterval(async () => {
+        if (this.showExecution || this.view === 'list') await this.loadRuntime();
         if (!this.polling) return;
+        if (this.view === 'workflow-trash') { await this.loadWorkflowTrash(); return; }
+        if (this.view === 'reviews') { await this.loadReviews(); return; }
+        if (this.view === 'usage') {
+          await this.loadUsage(this.usageOffset, true);
+          return;
+        }
         if (this.selectedProjectId && this.view === 'graph') {
           await this.loadProject(this.selectedProjectId);
           this.updateGraph();
@@ -3818,13 +4397,14 @@ function cairnApp() {
           ...(this.newProject.title.trim() ? {title:this.newProject.title.trim()} : {}),
           ...(this.newProject.origin.trim() ? {origin:this.newProject.origin.trim()} : {}),
           goal: this.newProject.goal.trim(),
+          verification_enabled: this.newProject.verification_enabled,
           bootstrap_enabled: this.newProject.bootstrap
         };
         const hints = hintContents.map(h => ({ content: h.content.trim(), creator: actor }));
         if (hints.length > 0) body.hints = hints;
         const data = await this.api('POST', '/projects', body);
         this.showNewProject = false;
-        this.newProject = { title:'', origin:'', goal:'', bootstrap: true, hints: [{ content:'' }] };
+        this.newProject = { verification_enabled: false, title:'', origin:'', goal:'', bootstrap: true, hints: [{ content:'' }] };
         await this.loadProjects();
         await this.openProject(data.project.id);
         this.showToast('Project created');
@@ -3894,8 +4474,20 @@ function cairnApp() {
 
     openCompleteProject() {
       if (!this.canActOnSelectedFacts()) return;
-      this.completeForm = { description:'' };
+      this.completeForm = { description:'', goals_text:'', no_child_goals:false };
       this.showCompleteModal = true;
+    },
+
+    manualExpansionGoals() {
+      if (this.completeForm.no_child_goals) return [];
+      return (this.completeForm.goals_text || '').split('\n').map(goal => goal.trim()).filter(Boolean).map(goal => ({goal}));
+    },
+
+    completionFormValid() {
+      if (!this.selectedFacts.length || !this.completeForm.description.trim()) return false;
+      if (!this.project?.expansion) return true;
+      const count = this.manualExpansionGoals().length;
+      return this.completeForm.no_child_goals || (count > 0 && count <= this.project.expansion.max_goals);
     },
 
     openHintModal() {
@@ -3905,9 +4497,10 @@ function cairnApp() {
     },
 
     async completeProject() {
+      if (!this.completionFormValid()) return;
       try {
         const actor = this.actorName();
-        await this.api('POST', `/projects/${this.selectedProjectId}/complete`, { from: this.selectedFacts, description: this.completeForm.description, worker: actor });
+        await this.api('POST', `/projects/${this.selectedProjectId}/complete`, { from: this.selectedFacts, description: this.completeForm.description.trim(), worker: actor, ...(this.project?.expansion ? {goals:this.manualExpansionGoals()} : {}) });
         this.showCompleteModal = false;
         await this.loadProjects();
         await this.loadProject(this.selectedProjectId);
