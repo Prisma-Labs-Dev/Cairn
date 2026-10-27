@@ -90,7 +90,7 @@ def submit_claim(conn, project, body):
     # Reuse full proposal validation without exposing any generated children.
     conn.execute('SAVEPOINT validate_proposals')
     try:
-        append_generated_goals(conn, project, body.goals)
+        append_generated_goals(conn, project, body.goals, body.selected_goal, body.selection_reason)
     finally:
         conn.execute('ROLLBACK TO validate_proposals')
         conn.execute('RELEASE validate_proposals')

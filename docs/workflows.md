@@ -1,5 +1,8 @@
 # Staged workflows
 
+For agents writing a new definition, start with [Writing workflows for agents](workflow-authoring.md).
+It provides complete examples and separates creation format from worker completion contracts.
+
 This fork adds workflows above Cairn's existing exploration engine. A workflow contains
 several goals. Cairn works toward each goal inside a normal project and unlocks its
 successors when it records that goal as complete.
@@ -166,6 +169,101 @@ worker loop, with no separate model call for planning or metadata.
 Generated children receive their own goal and the optional history pointer. The parent's
 findings, completion explanation, and other proposals are not copied into child prompts.
 
+## Choose one approach, with ranked fallback
+
+Set `expansion.mode: one` on a discovery stage when its follow-up goals are alternatives.
+The default `all` mode keeps every generated goal required and starts them in parallel.
+Use `one` for pancakes versus eggs versus eggs benedict. Use `all`, or independent intents
+inside a selected project, for milk and honey that both need to be fetched.
+
+```yaml
+stages:
+  - id: research
+    goal: Research and rank breakfast options that meet the user's hard constraints.
+    expansion: {mode: one, max_goals: 3}
+  - id: serve
+    goal: Serve the successful selected breakfast.
+    depends_on: [research]
+```
+
+The research agent actually completes its research before returning ranked options. It
+chooses one member and explains the decision in the same completion body:
+
+```json
+{
+  "from": ["f001"],
+  "description": "The available ingredients support two suitable breakfasts.",
+  "worker": "worker-name",
+  "goals": [
+    {"id": "pancakes", "goal": "Make peanut-free pancakes with an available sweet topping. Maple syrup is preferred; honey is acceptable."},
+    {"id": "eggs", "goal": "Make peanut-free eggs."}
+  ],
+  "selected_goal": "pancakes",
+  "selection_reason": "Pancakes meet the hard constraints and the stated preference. Honey is available if maple syrup is unavailable."
+}
+```
+
+Only the selected option receives a project. Other proposals remain visible and inactive.
+`selected_goal` must match an option ID, including a deterministic generated ID if the
+proposal omitted its ID. Agents should supply explicit IDs when proposing alternatives.
+`selection_reason` is required in one mode. It explains the ranking and decision without
+adding mandatory title or origin metadata. Selection fields are rejected in all mode.
+
+The discovery's own completion remains a research result. A normal successor depending
+on it waits for its choice to succeed. The selected option can start from the discovery's
+raw completion, so it does not wait for itself. Optional verification still gates both
+transitions. A pending claim does not satisfy a choice; rejection creates rework on the
+same selected option. Only approved completion satisfies it when verification is enabled.
+
+Methods may adapt within an immutable outcome. Unavailable maple syrup does not prevent
+pancakes if honey is allowed. The agent must preserve explicit hard constraints and cannot
+quietly replace a requested pancake outcome with eggs. Broader breakfast alternatives
+belong in a choice whose context permits either outcome.
+
+If observed evidence shows the selected option cannot achieve its goal, its worker calls
+`POST /projects/{id}/unavailable` with nonempty evidence references and a reason naming the
+unmet goal, for example:
+
+```json
+{"from":["f003"],"description":"The required pancake ingredients cannot be obtained within the breakfast deadline; both nearby shops confirmed no stock.","worker":"worker-name"}
+```
+
+Reason output wraps this under `data.unavailable`. Bootstrap output supplies
+`data.fact.description` with its observed evidence and `data.unavailable.description` with
+the unmet goal and reason. The dispatcher records the fact before reporting unavailable.
+This route accepts only the current selected choice project and rejects switching while
+its completion review is pending. An unavailable attempt never gains a goal completion.
+The server records its evidence and activates the highest-ranked untried option atomically.
+Identical retries do not activate additional options. On success, untried options become
+`skipped`; unavailable attempts remain unavailable. Required-goal counts exclude unselected,
+unavailable, and skipped alternatives. An unresolved choice still counts as one required
+result, including after its options are empty or exhausted.
+
+Fallback stops after every option has been tried. Empty `goals: []` with a
+`selection_reason` also pauses immediately. The discovery shows `choice_error`; no model
+correction loop tries to invent a success. Ordinary Resume never restarts unavailable work.
+For an exhausted nonempty group, while paused, an operator can call
+`POST /workflows/{workflow_id}/choices/{parent_stage_id}/retry` with
+`{"goal_id":"pancakes","reason":"A newly opened shop confirmed the missing ingredients are available."}`.
+The reason is retained in the option's event history. The workflow stays paused until
+explicit Resume, which creates a fresh project and retains the previous project's evidence.
+Old workers cannot complete or switch the fresh attempt through their old project ID.
+Within a dispatcher, new tasks sharing the runtime wait for canceled old tasks to be reaped;
+healthy required parallel branches remain parallel. As with existing runtime admission,
+use one scheduling dispatcher per server.
+
+The UI provides the same retry action with a required explanation. For empty choices, or
+when the original definition needs revision, **Create revised workflow** copies the original
+nongenerated definitions, context, output requirements, and verification settings into the
+editable creation form. The operator edits and explicitly creates a new workflow. The old
+run remains intact. This does not reopen or rewrite completed discovery history.
+
+Option cards show selection, unselected/skipped/unavailable states, rationale, and event
+history with links to previous attempts. A selected worker may optionally inspect paged
+`GET /projects/{id}/choice-history` and the individual evidence URLs it returns. The history
+reader supports `choice-list` and `choice-fact SOURCE_PROJECT FACT_ID`. Nothing fetches
+failed findings automatically, and cross-choice evidence requests are rejected.
+
 ## What a stage receives
 
 Each stage starts with the workflow's starting instructions, its own goal and output
@@ -259,7 +357,8 @@ Only unlocked stages have projects. Stopping a workflow stops its unfinished pro
 resuming continues them without discarding their graphs. Workflow-owned projects cannot
 be independently reopened or deleted in ways that would invalidate later handoffs.
 
-The workflow completes after all its stages complete. A stage with declared artifacts
+The workflow completes after every required stage and choice succeeds. Unselected, skipped,
+and unavailable alternatives do not need completion. A stage with declared artifacts
 cannot complete until those files have been collected. Completion still means Cairn has
 accepted an agent's explanation and supporting fact references. File collection checks
 presence and records the file's bytes; it does not independently verify whether the file
@@ -269,7 +368,7 @@ when those checks matter.
 ## Initial scope
 
 This is a dependency-based workflow implementation with opt-in goal expansion.
-It does not yet support arbitrary conditional branches, nested reusable workflows,
+It supports ranked choose-one alternatives, but not arbitrary conditional rules or nested reusable workflows,
 a source library, or a rendered book/report editor.
 Further research can be planned as intermediate stages, and agents can explore new intents
 within each stage.

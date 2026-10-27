@@ -71,7 +71,8 @@ def _export_yaml(conn, project_id: str) -> str:
 
     if proj["workflow_id"]:
         import json
-        stage = conn.execute("SELECT definition_json FROM workflow_stages WHERE project_id = ?", (project_id,)).fetchone()
+        from cairn.server.choice_service import stage_attempt
+        stage = stage_attempt(conn, project_id)
         definition = json.loads(stage["definition_json"])
         data["workflow"] = {
             "id": proj["workflow_id"],
@@ -83,6 +84,7 @@ def _export_yaml(conn, project_id: str) -> str:
             "collected_artifacts": [artifact.model_dump() for artifact in list_artifacts(conn, project_id)],
             "history_index_url": history_index_url(project_id),
             "expansion": definition.get("expansion"),
+            "choice_option": stage["option_state"] == "selected",
         }
 
     if hints:

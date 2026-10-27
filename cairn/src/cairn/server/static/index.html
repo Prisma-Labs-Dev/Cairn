@@ -308,7 +308,7 @@
               <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide" :class="projectStatusBadgeClass(item.status)" x-text="workflowStatusLabel(item.status)"></span>
             </div>
             <h3 class="font-semibold text-slate-700 break-words" x-text="item.title"></h3>
-            <p class="text-xs text-slate-500 mt-3" x-text="`${item.completed_stage_count} of ${item.stage_count} goals completed`"></p>
+            <p class="text-xs text-slate-500 mt-3" x-text="`${item.completed_stage_count} of ${item.stage_count} required goals completed`"></p>
             <div class="h-1.5 rounded-full bg-slate-100 mt-2 overflow-hidden"><div class="h-full rounded-full bg-brand-500" :style="`width:${item.stage_count ? item.completed_stage_count / item.stage_count * 100 : 0}%`"></div></div>
             <p class="text-xs text-slate-400 mt-2" x-text="item.status === 'completed' ? 'All stage goals met' : `${item.active_stage_count} active stage${item.active_stage_count === 1 ? '' : 's'}`"></p>
           </button>
@@ -533,7 +533,7 @@
       <p x-show="workflowTrashError" x-text="workflowTrashError" role="alert" class="text-sm text-rose-600 rounded-xl border border-rose-200 bg-rose-50 p-4"></p>
       <p x-show="workflowTrashLoading && !workflowTrash.length" class="text-sm text-slate-400 py-8 text-center">Loading Trash...</p>
       <p x-show="!workflowTrashLoading && !workflowTrashError && !workflowTrash.length" class="text-sm text-slate-400 py-12 text-center">Trash is empty.</p>
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"><template x-for="item in workflowTrash" :key="item.id"><article class="rounded-2xl border border-slate-200 bg-white overflow-hidden flex flex-col"><button @click="openWorkflow(item.id)" class="text-left p-5 flex-1 hover:bg-slate-50"><h2 class="font-semibold text-slate-700 break-words" x-text="item.title"></h2><p class="text-xs text-slate-400 mt-2" x-text="`${item.completed_stage_count} of ${item.stage_count} goals completed`"></p><p class="text-[11px] text-slate-400 mt-2" x-text="`Moved to Trash ${formatDate(item.deleted_at)}`"></p></button><div class="border-t border-slate-100 px-4 py-3 flex justify-end"><button @click="restoreWorkflow(item.id)" :disabled="!!workflowActionId" class="px-3 py-1.5 rounded-lg border border-brand-200 text-xs text-brand-600 hover:bg-brand-50 disabled:opacity-40" x-text="workflowActionId === item.id ? 'Restoring...' : 'Restore'"></button></div></article></template></div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"><template x-for="item in workflowTrash" :key="item.id"><article class="rounded-2xl border border-slate-200 bg-white overflow-hidden flex flex-col"><button @click="openWorkflow(item.id)" class="text-left p-5 flex-1 hover:bg-slate-50"><h2 class="font-semibold text-slate-700 break-words" x-text="item.title"></h2><p class="text-xs text-slate-400 mt-2" x-text="`${item.completed_stage_count} of ${item.stage_count} required goals completed`"></p><p class="text-[11px] text-slate-400 mt-2" x-text="`Moved to Trash ${formatDate(item.deleted_at)}`"></p></button><div class="border-t border-slate-100 px-4 py-3 flex justify-end"><button @click="restoreWorkflow(item.id)" :disabled="!!workflowActionId" class="px-3 py-1.5 rounded-lg border border-brand-200 text-xs text-brand-600 hover:bg-brand-50 disabled:opacity-40" x-text="workflowActionId === item.id ? 'Restoring...' : 'Restore'"></button></div></article></template></div>
     </div></main>
   </div>
 </template>
@@ -559,7 +559,7 @@
         <section x-show="workflow.workflow.deleted_at" class="rounded-xl border border-amber-200 bg-amber-50 p-4"><h2 class="text-sm font-semibold text-amber-800">This workflow is in Trash</h2><p class="text-xs text-amber-800 mt-1">Its graphs, files, and history remain available to read. Restore the workflow before changing or resuming it.</p><button @click="openWorkflowTrash()" class="text-xs font-medium text-brand-600 hover:text-brand-700 mt-2">Open Trash</button></section>
         <section class="bg-white border border-slate-200 rounded-2xl p-5">
           <div class="flex flex-wrap justify-between items-center gap-3">
-            <h2 class="text-sm font-semibold text-slate-700" x-text="`${workflow.stages.filter(stage => stage.status === 'completed').length} of ${workflow.stages.length} goals completed`"></h2>
+            <h2 class="text-sm font-semibold text-slate-700" x-text="`${workflowRequiredStages().filter(stage => stage.status === 'completed').length} of ${workflowRequiredTotal()} required goals completed`"></h2>
             <span class="text-xs text-slate-500" x-text="workflow.workflow.status === 'completed' ? 'Workflow complete' : 'Each stage waits for all its prerequisites'"></span>
           </div>
           <div class="h-2 bg-slate-100 rounded-full mt-3 overflow-hidden"><div class="h-full bg-brand-500 rounded-full transition-all" :style="`width:${workflowProgress()}%`"></div></div>
@@ -577,14 +577,40 @@
                   <h2 class="font-semibold text-slate-700 break-words" x-text="stage.title"></h2>
                   <p x-show="stage.generated_by_stage_id" class="text-[11px] text-brand-500 mt-1" x-text="`Generated by ${workflowStageTitle(stage.generated_by_stage_id)}`"></p>
                 </div>
-                <span class="px-2 py-1 rounded-full text-[10px] uppercase font-semibold shrink-0" :class="workflowStageStatusClass(stage.status)" x-text="stage.pending_review_id ? 'awaiting review' : stage.status"></span>
+                <span class="px-2 py-1 rounded-full text-[10px] uppercase font-semibold shrink-0" :class="workflowStageStatusClass(stage.option_state || stage.status)" x-text="workflowStageStatusLabel(stage)"></span>
               </div>
               <p class="text-sm text-slate-600 whitespace-pre-wrap break-words mt-4" x-text="stage.goal"></p>
               <template x-if="stage.expansion">
                 <section class="mt-4 rounded-xl border border-brand-100 bg-brand-50/40 p-3">
-                  <h3 class="text-xs font-semibold text-brand-700">Parallel goal expansion</h3>
+                  <h3 class="text-xs font-semibold text-brand-700" x-text="stage.expansion.mode === 'one' ? 'Choose one option' : 'Parallel goal expansion'"></h3>
                   <p class="text-xs text-slate-600 mt-1" x-text="generatedGoalSummary(stage)"></p>
-                  <p x-show="generatedGoals(stage.id).length" class="text-[11px] text-slate-400 mt-2">Generated goals can run independently. Following stages wait until all of them finish.</p>
+                  <p x-show="generatedGoals(stage.id).length" class="text-[11px] text-slate-500 mt-2" x-text="stage.expansion.mode === 'one' ? 'Only the selected option runs. Following stages wait for that option to succeed, including verification when required.' : 'Generated goals can run independently. Following stages wait until all of them finish.'"></p>
+                  <template x-if="stage.expansion.mode === 'one'"><div>
+                    <p x-show="selectedChoiceOption(stage.id)" class="text-xs font-medium text-brand-700 mt-3" x-text="selectedChoiceOption(stage.id) ? `Selected: ${selectedChoiceOption(stage.id).title}` : ''"></p>
+                    <p x-show="stage.completion?.selection_reason" class="text-xs text-slate-600 mt-2 whitespace-pre-wrap break-words"><span class="font-medium">Initial selection rationale: </span><span x-text="stage.completion?.selection_reason"></span></p>
+                    <p x-show="selectedChoiceOption(stage.id)?.option_reason" class="text-xs text-slate-600 mt-2 whitespace-pre-wrap break-words"><span class="font-medium">Current selection rationale: </span><span x-text="selectedChoiceOption(stage.id)?.option_reason"></span></p>
+                    <p x-show="generatedGoals(stage.id).length" class="text-[11px] text-slate-500 mt-2" x-text="choiceOptionCounts(stage.id)"></p>
+                  </div></template>
+                </section>
+              </template>
+              <template x-if="stage.choice_error">
+                <section role="alert" class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                  <h3 class="text-xs font-semibold text-amber-800">No option can proceed</h3>
+                  <p class="text-sm text-amber-900 whitespace-pre-wrap break-words mt-2" x-text="stage.choice_error"></p>
+                  <p class="text-xs text-amber-800 mt-2" x-text="generatedGoals(stage.id).length ? 'If circumstances changed, retry an unavailable option below with a reason, then resume the workflow.' : 'Create a revised workflow to edit the discovery goal or starting context. This paused workflow keeps its findings.'"></p>
+                  <button x-show="!workflow.workflow.deleted_at" @click="reviseWorkflowDefinition()" class="text-xs font-medium text-brand-600 hover:text-brand-700 mt-3">Create revised workflow</button>
+                </section>
+              </template>
+              <template x-if="stage.option_state">
+                <section class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <h3 class="text-xs font-semibold text-slate-600" x-text="`Option ${choiceOptionRank(stage)} · ${workflowStageStatusLabel(stage)}`"></h3>
+                  <p x-show="stage.option_reason && stage.option_state !== 'pending'" class="text-xs text-slate-600 whitespace-pre-wrap break-words mt-2" x-text="stage.option_reason"></p>
+                  <p x-show="stage.option_state === 'pending'" class="text-xs text-slate-500 mt-2">This alternative has no running project.</p>
+                  <p x-show="stage.option_state === 'selected' && !stage.project_id && workflow.workflow.status === 'stopped'" class="text-xs text-slate-500 mt-2">A fresh attempt starts when you resume the workflow.</p>
+                  <p x-show="stage.option_state === 'unavailable'" class="text-xs text-amber-700 mt-2">This goal was not achieved. Its findings remain available in the project graph.</p>
+                  <p x-show="stage.option_state === 'skipped'" class="text-xs text-slate-500 mt-2">Another option succeeded, so this alternative was not required.</p>
+                  <details x-show="stage.option_history?.length" class="mt-3"><summary class="cursor-pointer text-xs text-slate-500">Choice history</summary><ol class="mt-2 space-y-3"><template x-for="(event, eventIndex) in stage.option_history || []" :key="eventIndex"><li class="border-l-2 border-slate-200 pl-3"><p class="text-[11px] text-slate-500" x-text="`${event.state} · ${formatDate(event.created_at)}${event.worker ? ` · ${event.worker}` : ''}`"></p><p class="text-xs text-slate-600 whitespace-pre-wrap break-words mt-1" x-text="event.state === 'pending' ? `Discovery rationale: ${event.description}` : event.description"></p><p x-show="event.from?.length" class="text-[11px] text-slate-400 mt-1 break-words" x-text="`Evidence: ${(event.from || []).join(', ')}`"></p><button x-show="event.project_id" @click="openProject(event.project_id)" class="text-[11px] text-brand-600 hover:text-brand-700 mt-1">Open attempt findings</button></li></template></ol></details>
+                  <button x-show="canRetryChoice(stage)" @click="openChoiceRetry(stage)" class="mt-3 text-xs font-medium text-brand-600 hover:text-brand-700">Retry this option</button>
                 </section>
               </template>
               <template x-if="stage.expansion_error">
@@ -601,14 +627,14 @@
                 <section class="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3">
                   <h3 class="text-xs font-semibold text-slate-600">Required output files</h3>
                   <template x-for="artifact in stage.artifacts" :key="artifact.path"><div class="mt-2 text-xs break-words"><span class="text-slate-600" x-text="artifact.label || artifact.path"></span><span class="block font-mono text-[11px] text-slate-400" x-show="artifact.label" x-text="artifact.path"></span></div></template>
-                  <p x-show="stage.status !== 'completed'" class="text-[11px] text-slate-400 mt-2">The stage can finish once its required files have been collected.</p>
+                  <p x-show="stage.status !== 'completed' && !['pending', 'unavailable', 'skipped'].includes(stage.option_state)" class="text-[11px] text-slate-400 mt-2">The stage can finish once its required files have been collected.</p>
                 </section>
               </template>
               <div class="flex flex-wrap items-center gap-1.5 mt-3 text-xs text-slate-400">
                 <span x-text="stage.depends_on.length ? 'Requires' : 'Starts from the workflow context'"></span>
                 <template x-for="dependency in stage.depends_on" :key="dependency"><span class="rounded-md bg-slate-50 border border-slate-100 px-2 py-1 text-slate-500" x-text="workflowStageTitle(dependency)"></span></template>
               </div>
-              <p x-show="stage.status === 'blocked'" class="text-xs text-slate-500 mt-3" x-text="`Waiting for ${workflowWaitingFor(stage).join(', ')}`"></p>
+              <p x-show="stage.status === 'blocked' && !['pending', 'skipped'].includes(stage.option_state) && workflowWaitingFor(stage).length" class="text-xs text-slate-500 mt-3" x-text="`Waiting for ${workflowWaitingFor(stage).join(', ')}`"></p>
               <template x-if="stage.completion">
                 <section class="bg-teal-50/60 border border-teal-100 rounded-xl p-4 mt-4">
                   <h3 class="text-xs font-semibold text-teal-700">Goal achieved</h3>
@@ -1108,12 +1134,24 @@
   </section>
 </div>
 
+<!-- Retry an exhausted choice -->
+<div x-show="showChoiceRetryModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center overlay p-3" @click.self="!choiceRetrySaving && (showChoiceRetryModal = false)">
+  <section role="dialog" aria-modal="true" aria-labelledby="choice-retry-title" class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto p-6 border border-slate-200" @click.stop>
+    <h2 id="choice-retry-title" class="font-semibold text-slate-700">Retry an unavailable option</h2>
+    <p class="text-sm text-slate-600 mt-2 break-words" x-text="choiceRetryForm.title"></p>
+    <label class="block text-xs font-medium text-slate-600 mt-4">What changed?<textarea x-model="choiceRetryForm.reason" rows="3" maxlength="8000" placeholder="Explain the new circumstances that make another attempt worthwhile." class="block w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm"></textarea></label>
+    <p class="text-xs text-slate-500 mt-3">Earlier failures and evidence stay in the history. Saving selects this option and keeps the workflow paused. Resume explicitly when ready.</p>
+    <p x-show="choiceRetryError" x-text="choiceRetryError" role="alert" class="text-xs text-rose-600 mt-3"></p>
+    <div class="flex justify-end gap-2 mt-5"><button @click="showChoiceRetryModal = false" :disabled="choiceRetrySaving" class="px-4 py-2 text-sm text-slate-500 hover:bg-slate-50 rounded-xl disabled:opacity-40">Cancel</button><button @click="retryChoiceOption()" :disabled="choiceRetrySaving || !choiceRetryForm.reason.trim()" class="px-4 py-2 text-sm bg-brand-500 text-white hover:bg-brand-600 rounded-xl disabled:opacity-40" x-text="choiceRetrySaving ? 'Saving...' : 'Select for retry'"></button></div>
+  </section>
+</div>
+
 <!-- New workflow -->
 <div x-show="showNewWorkflow" x-cloak class="fixed inset-0 z-50 flex items-center justify-center overlay p-3 sm:p-6" @click.self="!isCreatingWorkflow && (showNewWorkflow = false)">
   <section role="dialog" aria-modal="true" aria-labelledby="new-workflow-title" class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-full flex flex-col border border-slate-200 overflow-hidden" @click.stop>
     <header class="p-5 border-b border-slate-100 shrink-0">
       <h2 id="new-workflow-title" class="font-semibold text-slate-700">New workflow</h2>
-      <p class="text-xs text-slate-500 mt-1">What should each stage achieve?</p>
+      <p class="text-xs text-slate-500 mt-1">Describe the outcome and true requirements. Agents can adapt methods and preferences as circumstances change.</p>
     </header>
     <div class="p-5 space-y-5 overflow-y-auto flex-1">
       <template x-for="(stage, index) in newWorkflow.stages" :key="stage.id">
@@ -1150,8 +1188,8 @@
               <label class="flex items-center gap-2 text-xs text-slate-500"><input type="checkbox" x-model="stage.verification_enabled" class="rounded border-slate-300">Require another agent to verify completion. Generated goals inherit this setting.</label>
               <label class="flex items-center gap-2 text-xs text-slate-500"><input type="checkbox" x-model="stage.bootstrap_enabled" class="rounded border-slate-300">Try the stage goal directly first</label>
               <div class="border-t border-slate-200 pt-3">
-                <label class="flex items-center gap-2 text-xs font-medium text-slate-600"><input type="checkbox" x-model="stage.expansion_enabled" @change="if (stage.expansion_enabled && !stage.max_goals) stage.max_goals = 16" class="rounded border-slate-300">Generate parallel goals when this stage finishes</label>
-                <div x-show="stage.expansion_enabled" class="mt-3 space-y-2"><label class="block text-xs text-slate-500">Maximum generated goals<input type="number" min="1" max="64" step="1" x-model.number="stage.max_goals" :aria-label="`Stage ${index + 1} maximum generated goals`" class="block w-24 mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white"></label><p class="text-[11px] text-slate-400">The agent proposes independent goals from its findings. Stages that depend on this stage also wait for all generated goals.</p></div>
+                <label class="flex items-center gap-2 text-xs font-medium text-slate-600"><input type="checkbox" x-model="stage.expansion_enabled" @change="if (stage.expansion_enabled) { if (!stage.max_goals) stage.max_goals = 16; if (!stage.expansion_mode) stage.expansion_mode = 'all'; }" class="rounded border-slate-300">Generate follow-up goals when this stage finishes</label>
+                <div x-show="stage.expansion_enabled" class="mt-3 space-y-2"><label class="block text-xs text-slate-500">How to use generated goals<select x-model="stage.expansion_mode" :aria-label="`Stage ${index + 1} generated goal mode`" class="block w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white"><option value="all">All required, run in parallel</option><option value="one">Choose one, keep ranked alternatives</option></select></label><label class="block text-xs text-slate-500">Maximum generated goals<input type="number" min="1" max="64" step="1" x-model.number="stage.max_goals" :aria-label="`Stage ${index + 1} maximum generated goals`" class="block w-24 mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white"></label><p class="text-[11px] text-slate-500" x-text="stage.expansion_mode === 'one' ? 'The agent ranks suitable options and selects one before acting. If it is unavailable, Cairn tries the next untried option. Hard requirements still apply.' : 'The agent proposes independent required goals. Following stages wait until all generated goals finish.'"></p></div>
               </div>
             </div>
           </details>
@@ -1269,8 +1307,8 @@
 </div>
 
 <!-- Complete Project -->
-<div x-show="showCompleteModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center overlay" @click.self="showCompleteModal = false">
-  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 border border-slate-200/60" @click.stop>
+<div x-show="showCompleteModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center overlay p-3" @click.self="showCompleteModal = false">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto p-6 border border-slate-200/60" @click.stop>
     <h3 class="text-base font-semibold text-slate-700 mb-1">Complete Project</h3>
     <p class="text-xs text-slate-400 mb-4">Mark project as completed</p>
     <div class="space-y-3">
@@ -1286,7 +1324,12 @@
       <template x-if="project && project.expansion">
         <section class="rounded-xl border border-brand-100 bg-brand-50/40 p-3 space-y-2">
           <label class="block text-xs font-medium text-slate-600">Generated child goals, one per line<textarea x-model="completeForm.goals_text" :disabled="completeForm.no_child_goals" rows="3" placeholder="Investigate the first question&#10;Investigate the second question" class="block mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white disabled:opacity-40"></textarea></label>
-          <p class="text-[11px] text-slate-400" x-text="`Up to ${project.expansion.max_goals} independent goals. Following stages wait for all of them.`"></p>
+          <p class="text-[11px] text-slate-500" x-text="project.expansion.mode === 'one' ? `Up to ${project.expansion.max_goals} ranked options, best first. Only the selected option runs.` : `Up to ${project.expansion.max_goals} independent goals. Following stages wait for all of them.`"></p>
+          <template x-if="project.expansion.mode === 'one'"><div class="space-y-2">
+            <label x-show="!completeForm.no_child_goals" class="block text-xs font-medium text-slate-600">Selected option<select x-model="completeForm.selected_index" class="block w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"><template x-for="(goal, goalIndex) in manualExpansionGoals()" :key="goal.id"><option :value="String(goalIndex)" x-text="`${goalIndex + 1}. ${goal.goal}`"></option></template></select></label>
+            <label class="block text-xs font-medium text-slate-600">Why this selection, or why no options are available<textarea x-model="completeForm.selection_reason" rows="2" class="block w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white" placeholder="Explain suitability, preferences, and evidence."></textarea></label>
+            <p x-show="completeForm.no_child_goals" class="text-xs text-amber-700">No options will pause the workflow for a revised definition.</p>
+          </div></template>
           <label class="flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" x-model="completeForm.no_child_goals" class="rounded border-slate-300">Complete this stage without generating child goals</label>
         </section>
       </template>
@@ -1576,6 +1619,10 @@ function cairnApp() {
     showIntentModal: false,
     showConcludeModal: false,
     showCompleteModal: false,
+    showChoiceRetryModal: false,
+    choiceRetrySaving: false,
+    choiceRetryError: '',
+    choiceRetryForm: {workflow_id:'', parent_id:'', goal_id:'', title:'', reason:''},
     showHintModal: false,
     showReopenModal: false,
     showRenameModal: false,
@@ -1589,7 +1636,7 @@ function cairnApp() {
     newProject: { verification_enabled: false, title: '', origin: '', goal: '', bootstrap: true, hints: [{ content: '' }] },
     intentForm: { description: '' },
     concludeForm: { description: '', intentId: '' },
-    completeForm: { description: '', goals_text: '', no_child_goals: false },
+    completeForm: { description: '', goals_text: '', no_child_goals: false, selected_index: '0', selection_reason: '' },
     hintForm: { content: '' },
     reopenForm: { projectId: '', projectTitle: '', description: '' },
     renameForm: { projectId: '', originalTitle: '', title: '' },
@@ -2190,9 +2237,19 @@ function cairnApp() {
       else this.backToList();
     },
 
+    workflowRequiredStages() {
+      return (this.workflow?.stages || []).filter(stage => !['pending', 'unavailable', 'skipped'].includes(stage.option_state));
+    },
+
+    workflowRequiredTotal() {
+      const missingChoices = (this.workflow?.stages || []).filter(stage => stage.expansion?.mode === 'one' && stage.completion && !this.selectedChoiceOption(stage.id)).length;
+      return this.workflowRequiredStages().length + missingChoices;
+    },
+
     workflowProgress() {
-      if (!this.workflow?.stages.length) return 0;
-      return this.workflow.stages.filter(stage => stage.status === 'completed').length / this.workflow.stages.length * 100;
+      const required = this.workflowRequiredStages();
+      const total = this.workflowRequiredTotal();
+      return total ? required.filter(stage => stage.status === 'completed').length / total * 100 : 0;
     },
 
     rememberWorkflowScroll() {
@@ -2230,6 +2287,12 @@ function cairnApp() {
 
     generatedGoalSummary(stage) {
       const goals = this.generatedGoals(stage.id);
+      if (stage.expansion.mode === 'one') {
+        if (stage.choice_satisfied) return 'The selected option succeeded.';
+        if (goals.length) return 'One selected option must succeed before following stages start.';
+        if (stage.choice_error) return 'No suitable option was found. Work is paused.';
+        return `May propose up to ${stage.expansion.max_goals} ranked options and select one.`;
+      }
       if (goals.length) return `${goals.filter(goal => goal.status === 'completed').length} of ${goals.length} generated goals completed`;
       if (stage.status === 'completed') return 'Completed without generating additional goals.';
       return `May generate up to ${stage.expansion.max_goals} independent goals on completion.`;
@@ -2342,14 +2405,86 @@ function cairnApp() {
       state.error = '';
     },
 
+    selectedChoiceOption(stageId) {
+      return this.generatedGoals(stageId).find(option => ['selected', 'succeeded'].includes(option.option_state));
+    },
+
+    choiceOptionRank(stage) {
+      return this.generatedGoals(stage.generated_by_stage_id).findIndex(option => option.id === stage.id) + 1;
+    },
+
+    choiceOptionCounts(stageId) {
+      const options = this.generatedGoals(stageId);
+      return `${options.filter(option => option.option_state === 'pending').length} unselected · ${options.filter(option => option.option_state === 'unavailable').length} unavailable · ${options.filter(option => option.option_state === 'skipped').length} skipped`;
+    },
+
+    workflowStageStatusLabel(stage) {
+      if (stage.pending_review_id) return stage.option_state === 'selected' ? 'selected · awaiting review' : 'awaiting review';
+      if (stage.option_state === 'selected') return stage.status === 'stopped' || this.workflow?.workflow.status === 'stopped' ? 'selected · paused' : 'selected option';
+      if (stage.option_state === 'pending') return 'unselected';
+      if (stage.option_state === 'succeeded') return 'completed option';
+      return stage.option_state || stage.status;
+    },
+
+    canRetryChoice(stage) {
+      if (stage.option_state !== 'unavailable' || !this.workflow || this.workflow.workflow.status !== 'stopped' || this.workflow.workflow.deleted_at) return false;
+      return !!this.workflow.stages.find(parent => parent.id === stage.generated_by_stage_id)?.choice_error;
+    },
+
+    openChoiceRetry(stage) {
+      if (!this.canRetryChoice(stage)) return;
+      this.choiceRetryForm = {workflow_id:this.workflow.workflow.id,parent_id:stage.generated_by_stage_id,goal_id:stage.id,title:stage.title,reason:''};
+      this.choiceRetryError = '';
+      this.showChoiceRetryModal = true;
+    },
+
+    async retryChoiceOption() {
+      if (this.choiceRetrySaving || !this.choiceRetryForm.reason.trim()) return;
+      this.choiceRetrySaving = true;
+      this.choiceRetryError = '';
+      try {
+        const form = this.choiceRetryForm;
+        const data = await this.api('POST', `/workflows/${form.workflow_id}/choices/${form.parent_id}/retry`, {goal_id:form.goal_id,reason:form.reason.trim()});
+        if (this.selectedWorkflowId === form.workflow_id) this.workflow = data;
+        this.showChoiceRetryModal = false;
+        await Promise.all([this.loadProjects(), this.loadWorkflows()]);
+        this.showToast('Option selected for retry. Resume the workflow when ready.');
+      } catch(e) { this.choiceRetryError = e.message; }
+      finally { this.choiceRetrySaving = false; }
+    },
+
+    reviseWorkflowDefinition() {
+      if (!this.workflow || this.workflow.workflow.deleted_at) return;
+      const originals = this.workflow.stages.filter(stage => !stage.generated_by_stage_id);
+      const ids = new Set(originals.map(stage => stage.id));
+      this.newWorkflow = {
+        title:this.workflow.workflow.title,
+        origin:this.workflow.workflow.origin || '',
+        stages:originals.map(stage => ({
+          id:stage.id,title:stage.title || '',goal:stage.goal,kind:stage.kind,layer:stage.layer || '',
+          depends_on:stage.depends_on.filter(id => ids.has(id)),bootstrap_enabled:stage.bootstrap_enabled,
+          verification_enabled:!!stage.verification_enabled,
+          artifacts:(stage.artifacts || []).map(artifact => ({path:artifact.path,label:artifact.label || ''})),
+          expansion_enabled:!!stage.expansion,expansion_mode:stage.expansion?.mode || 'all',max_goals:stage.expansion?.max_goals || 16,
+        })),
+      };
+      this.workflowStageSequence = Math.max(originals.length, ...originals.map(stage => Number(stage.id.match(/^stage_(\d+)$/)?.[1]) || 0));
+      this.workflowFormError = '';
+      this.showNewWorkflow = true;
+    },
+
     workflowWaitingFor(stage) {
-      return stage.depends_on.filter(id => this.workflow.stages.find(item => item.id === id)?.status !== 'completed').map(id => this.workflowStageTitle(id));
+      return stage.depends_on.filter(id => {
+        const source = this.workflow.stages.find(item => item.id === id);
+        if (source?.status !== 'completed') return true;
+        return source.expansion?.mode === 'one' && source.choice_satisfied !== true && stage.generated_by_stage_id !== id;
+      }).map(id => this.workflowStageTitle(id));
     },
 
     workflowStageStatusClass(status) {
-      if (status === 'completed') return 'bg-teal-50 text-teal-700';
-      if (status === 'active') return 'bg-brand-50 text-brand-600';
-      if (status === 'stopped') return 'bg-amber-50 text-amber-700';
+      if (status === 'completed' || status === 'succeeded') return 'bg-teal-50 text-teal-700';
+      if (status === 'active' || status === 'selected') return 'bg-brand-50 text-brand-600';
+      if (status === 'stopped' || status === 'unavailable') return 'bg-amber-50 text-amber-700';
       return 'bg-slate-100 text-slate-500';
     },
 
@@ -2428,7 +2563,7 @@ function cairnApp() {
             id: stage.id, ...(stage.title.trim() ? {title:stage.title.trim()} : {}), goal: stage.goal.trim(), kind: stage.kind,
             layer: stage.layer.trim() || null, depends_on: [...stage.depends_on], bootstrap_enabled: stage.bootstrap_enabled, verification_enabled: !!stage.verification_enabled,
             artifacts: stage.artifacts.map(artifact => ({path:artifact.path.trim(),label:artifact.label.trim() || null})),
-            ...(stage.expansion_enabled ? {expansion:{max_goals:Number(stage.max_goals)}} : {}),
+            ...(stage.expansion_enabled ? {expansion:{max_goals:Number(stage.max_goals),mode:stage.expansion_mode || 'all'}} : {}),
           })),
         });
         this.showNewWorkflow = false;
@@ -4474,20 +4609,25 @@ function cairnApp() {
 
     openCompleteProject() {
       if (!this.canActOnSelectedFacts()) return;
-      this.completeForm = { description:'', goals_text:'', no_child_goals:false };
+      this.completeForm = { description:'', goals_text:'', no_child_goals:false, selected_index:'0', selection_reason:'' };
       this.showCompleteModal = true;
     },
 
     manualExpansionGoals() {
       if (this.completeForm.no_child_goals) return [];
-      return (this.completeForm.goals_text || '').split('\n').map(goal => goal.trim()).filter(Boolean).map(goal => ({goal}));
+      return (this.completeForm.goals_text || '').split('\n').map(goal => goal.trim()).filter(Boolean).map((goal, index) => (
+        this.project?.expansion?.mode === 'one' ? {id:`${this.project.project.workflow_stage_id.slice(0, 48)}_option_${index + 1}`,goal} : {goal}
+      ));
     },
 
     completionFormValid() {
       if (!this.selectedFacts.length || !this.completeForm.description.trim()) return false;
       if (!this.project?.expansion) return true;
       const count = this.manualExpansionGoals().length;
-      return this.completeForm.no_child_goals || (count > 0 && count <= this.project.expansion.max_goals);
+      if (!this.completeForm.no_child_goals && !(count > 0 && count <= this.project.expansion.max_goals)) return false;
+      if (this.project.expansion.mode !== 'one') return true;
+      if (!this.completeForm.selection_reason.trim()) return false;
+      return this.completeForm.no_child_goals || !!this.manualExpansionGoals()[Number(this.completeForm.selected_index)];
     },
 
     openHintModal() {
@@ -4500,7 +4640,7 @@ function cairnApp() {
       if (!this.completionFormValid()) return;
       try {
         const actor = this.actorName();
-        await this.api('POST', `/projects/${this.selectedProjectId}/complete`, { from: this.selectedFacts, description: this.completeForm.description.trim(), worker: actor, ...(this.project?.expansion ? {goals:this.manualExpansionGoals()} : {}) });
+        await this.api('POST', `/projects/${this.selectedProjectId}/complete`, { from: this.selectedFacts, description: this.completeForm.description.trim(), worker: actor, ...(this.project?.expansion ? {goals:this.manualExpansionGoals()} : {}), ...(this.project?.expansion?.mode === 'one' ? {selected_goal:this.completeForm.no_child_goals ? null : this.manualExpansionGoals()[Number(this.completeForm.selected_index)].id,selection_reason:this.completeForm.selection_reason.trim()} : {}) });
         this.showCompleteModal = false;
         await this.loadProjects();
         await this.loadProject(this.selectedProjectId);

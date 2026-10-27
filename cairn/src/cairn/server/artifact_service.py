@@ -17,9 +17,8 @@ ARTIFACT_COLUMNS = "id, workflow_id, stage_id, project_id, path, label, size, sh
 
 
 def requirements_for_project(conn: sqlite3.Connection, project_id: str) -> list[ArtifactRequirement]:
-    row = conn.execute(
-        "SELECT definition_json FROM workflow_stages WHERE project_id = ?", (project_id,),
-    ).fetchone()
+    from cairn.server.choice_service import stage_attempt
+    row = stage_attempt(conn, project_id)
     if row is None:
         return []
     return [ArtifactRequirement.model_validate(item)

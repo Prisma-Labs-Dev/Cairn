@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from cairn.dispatcher.output_parser import extract_json_object
-from cairn.server.models import GeneratedGoalDefinition
+from cairn.server.models import GeneratedGoalDefinition, UnavailableRequest
 
 
 def parse_json_output(stdout: str) -> dict[str, Any]:
@@ -30,6 +30,8 @@ def _looks_like_reason_data(payload: dict[str, Any]) -> bool:
     if not isinstance(payload, dict):
         return False
     keys = set(payload)
+    if keys == {"unavailable"}:
+        return isinstance(payload["unavailable"], dict)
     if keys == {"complete"}:
         complete = payload["complete"]
         return isinstance(complete, dict) and "from" in complete and "description" in complete
@@ -42,9 +44,9 @@ def _looks_like_reason_data(payload: dict[str, Any]) -> bool:
 
 
 def _looks_like_bootstrap_execute_data(payload: dict[str, Any]) -> bool:
-    if not isinstance(payload, dict) or set(payload) != {"fact", "complete"}:
+    if not isinstance(payload, dict) or set(payload) not in ({"fact", "complete"}, {"fact", "unavailable"}):
         return False
-    return _is_dict(payload.get("fact")) and _is_dict(payload.get("complete"))
+    return _is_dict(payload.get("fact")) and _is_dict(payload.get("complete", payload.get("unavailable")))
 
 
 def _looks_like_bootstrap_conclude_data(payload: dict[str, Any]) -> bool:
@@ -88,6 +90,12 @@ def validate_reason_payload(
         data = payload
     if not isinstance(data, dict):
         raise ValueError("accepted must be true or false")
+    if "unavailable" in data:
+        if set(data) != {"unavailable"} or not isinstance(data['unavailable'], dict):
+            raise ValueError("unavailable must be the only reason result")
+        raw = data['unavailable']
+        checked = UnavailableRequest.model_validate({**raw, 'worker': 'contract'})
+        return "unavailable", {'from': checked.from_, 'description': checked.description}
     complete = data.get("complete")
     intents = data.get("intents")
     # backward compat: accept singular "intent" key from LLMs
@@ -138,6 +146,11 @@ def validate_bootstrap_execute_payload(payload: dict[str, Any], expansion_max_go
         raise ValueError("fact.description is required")
 
     result = {"fact_description": fact_description.strip()}
+    if "unavailable" in data:
+        if set(data) != {"fact", "unavailable"} or not isinstance(data['unavailable'], dict):
+            raise ValueError("bootstrap unavailable requires only fact and unavailable")
+        checked = UnavailableRequest.model_validate({**data['unavailable'], 'from': ['bootstrap-evidence'], 'worker': 'contract'})
+        return "unavailable", {**result, 'unavailable_description': checked.description}
     complete = data.get("complete")
     if complete is None:
         raise ValueError("complete is required")
@@ -150,6 +163,9 @@ def validate_bootstrap_execute_payload(payload: dict[str, Any], expansion_max_go
     goals = _completion_goals(complete, expansion_max_goals)
     if goals is not None:
         result["goals"] = goals
+    for key in ("selected_goal", "selection_reason"):
+        if key in complete:
+            result[key] = complete[key]
     return "complete", result
 
 

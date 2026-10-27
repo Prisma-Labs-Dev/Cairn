@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from cairn.server.db import get_conn
 from cairn.server.verification_models import CompletionClaim
@@ -9,7 +9,7 @@ from cairn.server.workflow_service import (
     append_generated_goals, request_expansion_recovery,
 )
 from cairn.server.models import (
-    CompleteRequest,
+    CompleteRequest, UnavailableRequest,
     ConcludeRequest,
     CreateProjectRequest,
     Fact,
@@ -159,6 +159,7 @@ def _project_detail(conn, row) -> ProjectDetail:
         hints=[Hint(**dict(h)) for h in hints],
         required_artifacts=requirements_for_project(conn, project_id),
         expansion=expansion_for_project(conn, project_id),
+        choice_option=conn.execute("SELECT 1 FROM workflow_stages WHERE project_id=? AND option_state='selected'", (project_id,)).fetchone() is not None,
     )
 
 
@@ -303,7 +304,8 @@ def complete_project(project_id: str, body: CompleteRequest):
             recorded = StageCompletion.model_validate_json(stage["completion_json"])
             intent = get_completion_intent_or_409(conn, project_id)
             if (recorded.description == body.description and recorded.from_ == body.from_
-                    and recorded.goals == body.goals and intent["worker"] == body.worker):
+                    and recorded.goals == body.goals and recorded.selected_goal == body.selected_goal
+                    and recorded.selection_reason == body.selection_reason and intent["worker"] == body.worker):
                 return intent_to_model(conn, intent, project_id)
             raise HTTPException(409, "This expandable stage is already completed with different results")
         project = check_project_active(conn, project_id)
@@ -314,7 +316,7 @@ def complete_project(project_id: str, body: CompleteRequest):
 def apply_completion(conn, project, body):
     project_id = project["id"]
     require_stage_artifacts(conn, project_id)
-    append_generated_goals(conn, project, body.goals)
+    append_generated_goals(conn, project, body.goals, body.selected_goal, body.selection_reason)
 
     now = utcnow()
     iid = next_intent_id(conn, project_id)
@@ -341,7 +343,7 @@ def apply_completion(conn, project, body):
         (project_id,),
     )
 
-    complete_workflow_stage(conn, project, body.description, body.from_, now, body.goals)
+    complete_workflow_stage(conn, project, body.description, body.from_, now, body.goals, body.selected_goal, body.selection_reason)
 
     return Intent(
         id=iid,
@@ -420,3 +422,31 @@ def reopen_project(project_id: str, body: ReopenRequest):
             fact=Fact(id=fact_id, description=description),
             intent=intent_to_model(conn, updated_intent, project_id),
         )
+
+
+@router.post("/projects/{project_id}/unavailable")
+def unavailable(project_id: str, body: UnavailableRequest):
+    from cairn.server.choice_service import mark_unavailable
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        project = get_project_or_404(conn, project_id)
+        validate_facts_exist(conn, project_id, body.from_)
+        validate_goal_not_in_sources(body.from_)
+        return mark_unavailable(conn, project, body)
+
+
+@router.get("/projects/{project_id}/choice-history")
+def previous_choice_attempts(project_id: str, offset: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100)):
+    from cairn.server.choice_service import choice_history
+    with get_conn() as conn:
+        history = choice_history(conn, project_id)
+        items = [{**event, 'description': event['description'][:512], 'truncated': len(event['description']) > 512} for event in history[offset:offset + limit]]
+        return {'items': items, 'offset': offset, 'limit': limit, 'total': len(history),
+                'next_offset': offset + limit if offset + limit < len(history) else None}
+
+
+@router.get("/projects/{project_id}/choice-history/{source_id}/facts/{fact_id}", response_model=Fact)
+def previous_choice_evidence(project_id: str, source_id: str, fact_id: str):
+    from cairn.server.choice_service import choice_history_fact
+    with get_conn() as conn:
+        return choice_history_fact(conn, project_id, source_id, fact_id)

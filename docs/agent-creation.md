@@ -1,5 +1,8 @@
 # Create projects and workflows from agents
 
+For goal design, constraints, parallel requirements, and ranked alternatives, read
+[Writing workflows for agents](workflow-authoring.md) before creating the definition.
+
 Cairn accepts JSON requests at its API and JSON or YAML definitions through the CLI.
 The CLI prints JSON results and errors and does not prompt for missing metadata.
 Commands below assume `cairn` is on your PATH. From this repository, use
@@ -127,3 +130,14 @@ after the change; it does not rewrite the starting context of existing or comple
 
 No model call is needed to derive the initial labels or create the definition. Agents may
 provide better metadata through the same API or CLI when appropriate.
+
+## Alternative versus required follow-up goals
+
+Goal expansion defaults to `mode: all`: every proposed child is required and can run in
+parallel. Use `expansion: {mode: one, max_goals: 3}` for a research stage that will rank
+mutually exclusive routes. Its worker completion supplies `goals`, one member's
+`selected_goal` ID, and `selection_reason`. Only that option executes. Discovery alone
+does not unlock successors; the choice must succeed, after optional verification.
+See [ranked choice and recovery](workflows.md#choose-one-approach-with-ranked-fallback)
+for machine-readable examples, unavailable evidence, exhaustion, and explicit retry.
+Titles and origin remain optional in either mode.

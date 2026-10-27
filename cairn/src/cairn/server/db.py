@@ -89,6 +89,11 @@ CREATE TABLE IF NOT EXISTS workflow_stages (
     PRIMARY KEY (workflow_id, id)
 );
 
+CREATE TABLE IF NOT EXISTS workflow_stage_attempts (
+    project_id TEXT PRIMARY KEY REFERENCES projects(id),
+    stage_json TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS facts (
     id TEXT NOT NULL,
     project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -201,6 +206,10 @@ def _ensure_project_columns(conn: sqlite3.Connection) -> None:
 
 def _ensure_workflow_stage_columns(conn: sqlite3.Connection) -> None:
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(workflow_stages)")}
+    for name, definition in (("option_state", "TEXT"), ("option_reason", "TEXT"),
+                             ("option_history_json", "TEXT NOT NULL DEFAULT '[]'"), ("choice_error", "TEXT")):
+        if name not in columns:
+            conn.execute(f"ALTER TABLE workflow_stages ADD COLUMN {name} {definition}")
     if "artifact_recovery_attempts" not in columns:
         conn.execute(
             "ALTER TABLE workflow_stages ADD COLUMN artifact_recovery_attempts INTEGER NOT NULL DEFAULT 0"

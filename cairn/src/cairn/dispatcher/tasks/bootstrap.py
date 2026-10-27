@@ -200,8 +200,10 @@ def run_bootstrap_task(
                 intent.id,
                 worker.name,
                 data["fact_description"],
-                data["complete_description"],
+                data.get("complete_description", data.get("unavailable_description")),
                 goals=data.get("goals"),
+                selected_goal=data.get("selected_goal"), selection_reason=data.get("selection_reason"),
+                unavailable=kind == "unavailable",
                 producer_agent_id=f"producer_{uuid.uuid4().hex}",
                 producer_session_id=session or f"producer_session_{uuid.uuid4().hex}",
                 source="bootstrap",
@@ -436,6 +438,7 @@ def _write_bootstrap_complete_result(
     phase_ms: int,
     total_ms: int | None = None,
     goals: list[dict] | None = None,
+    selected_goal: str | None = None, selection_reason: str | None = None, unavailable: bool = False,
     producer_agent_id: str | None = None,
     producer_session_id: str | None = None,
 ) -> str:
@@ -462,11 +465,18 @@ def _write_bootstrap_complete_result(
         )
         return "success"
 
+    if unavailable:
+        response = client.unavailable(project_id, [conclude.fact_id], complete_description, worker_name)
+        return "success" if response.ok or response.status_code == 403 else "failed"
     if project.required_artifacts and not capture_required_artifacts(
         client, container_manager, client.get_project(project_id), worker_name,
     ):
         return "success"
     kwargs = {"goals": goals} if goals is not None else {}
+    if selected_goal is not None:
+        kwargs["selected_goal"] = selected_goal
+    if selection_reason is not None:
+        kwargs["selection_reason"] = selection_reason
     if project.project.verification_enabled:
         kwargs.update(producer_agent_id=producer_agent_id, producer_session_id=producer_session_id)
     response = client.complete(project_id, [conclude.fact_id], complete_description, worker_name, **kwargs)
