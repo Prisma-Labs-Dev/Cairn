@@ -340,7 +340,7 @@ capabilities still determine what it can access.
 
 Codex workers may set `model` and `reasoning_effort` explicitly. The model is trimmed and
 must not be blank. Allowed efforts are `minimal`, `low`, `medium`, `high`, and `xhigh`.
-These fields currently require `type: codex`; other drivers reject them. For local Codex,
+These fields accept `type: codex` and `type: pi`; other drivers reject them. For local Codex,
 omitted fields preserve host defaults. For container Codex, `model` overrides `CODEX_MODEL`
 and an omitted effort keeps the existing `high` setting. Both execute and resume use the
 same configured overrides. The selected CLI and provider must support the requested model
@@ -348,7 +348,10 @@ and effort; configuration acceptance does not prove provider availability.
 
 Pi container execution writes an isolated provider configuration under `/tmp/cairn-pi`, then
 selects its configured model and JSON mode. `PI_MODEL_CONTEXT_WINDOW` is an optional positive
-integer. Local Pi reuses host model settings. Both modes disable external extensions, skills,
+integer. Worker `model` overrides `PI_MODEL` in containers; their injected provider remains `cairn`.
+Local Pi reuses host credentials and defaults unless `provider`, `model`, or `reasoning_effort`
+is explicit. An exact offline catalog check rejects unavailable or ambiguous local models before
+model execution. Thinking uses Pi `--thinking`. Both modes disable external extensions, skills,
 prompt templates, themes, and context files and enable the bundled file and shell tools.
 
 ### Mock behavior
@@ -444,8 +447,9 @@ processes also inherit the dispatcher's host environment.
 | `workers[].max_running` | Required positive worker task cap |
 | `workers[].priority` | Required nonnegative selection priority; lower wins |
 | `workers[].env` | Optional string environment map; container drivers require the keys listed above |
-| `workers[].model` | Optional nonblank explicit Codex model |
-| `workers[].reasoning_effort` | Optional explicit Codex effort |
+| `workers[].model` | Optional nonblank explicit Codex or Pi model |
+| `workers[].provider` | Optional explicit Pi provider; containers accept only the injected `cairn` provider |
+| `workers[].reasoning_effort` | Optional explicit Codex or Pi thinking effort |
 
 Loading validates the configuration, unique worker names, task types, environment
 requirements, mock distributions, and packaged prompt resources. Every required prompt must
@@ -484,7 +488,9 @@ project deletion retains its original semantics. See [Workflow management](../wo
 
 The intent protocol stores only the current claim holder for open intents, not a complete
 worker history. Stopping a project clears open claims, so its graph cannot identify the last
-worker on a stopped unfinished intent. Concluded intents keep their producing worker.
+worker on a stopped unfinished intent. Concluded intents keep their producing worker. Separate durable Pi invocation records now retain
+explicit worker, phase, usage UUID, conversation, and graph associations through stop/retry. They
+do not change claim authority. See [Pi sessions](../pi-sessions.md) for capture and viewer contracts.
 
 ## Prompt resources
 

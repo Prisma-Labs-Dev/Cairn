@@ -12,7 +12,7 @@ from docker.models.containers import Container
 
 from cairn.dispatcher.config import ContainerConfig
 from cairn.dispatcher.runtime.process import ManagedProcess
-from cairn.dispatcher.runtime.artifact_files import CONTAINER_READ_SCRIPT
+from cairn.dispatcher.runtime.artifact_files import CONTAINER_READ_SCRIPT, CONTAINER_SESSION_READ_SCRIPT, validate_session_read
 from cairn.server.artifact_models import validate_artifact_path
 
 LOG = logging.getLogger(__name__)
@@ -55,6 +55,27 @@ class ContainerManager:
         content = stdout or b""
         if len(content) > max_bytes:
             raise ValueError("artifact exceeds the 10 MiB limit")
+        return content
+
+    def read_session_chunk(self, container_name: str, path: str, offset: int, max_bytes: int) -> bytes:
+        validate_session_read(path, offset, max_bytes)
+        container = self._require_container(container_name)
+        try:
+            result = container.exec_run(
+                ["python3", "-c", CONTAINER_SESSION_READ_SCRIPT, path, str(offset), str(max_bytes)], demux=True,
+            )
+        except DockerException as exc:
+            raise RuntimeError("failed to read managed session source") from exc
+        stdout, _stderr = result.output
+        if result.exit_code == 44:
+            raise FileNotFoundError("managed session source has not been created")
+        if result.exit_code:
+            # The worker owns file contents and paths. Do not echo arbitrary
+            # stderr into the read-only session metadata.
+            raise ValueError("managed session source is unavailable or unsafe")
+        content = stdout or b""
+        if len(content) > max_bytes:
+            raise ValueError("managed session source exceeded the requested chunk")
         return content
 
     def _ensure_running_locked(self, project_id: str, name: str) -> str:

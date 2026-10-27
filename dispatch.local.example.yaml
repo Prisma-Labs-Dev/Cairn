@@ -1,6 +1,6 @@
 # Local execution example — workers run directly on the dispatcher host and reuse the
-# machine's already-configured claude / codex / pi CLIs. No API keys, base URLs or models
-# are configured here; each CLI uses its own host configuration and credentials.
+# machine's already-configured Pi CLI. Host credentials are reused. Optional exact
+# provider/model/thinking selections are shown below; omitted values preserve Pi defaults.
 #
 # Usage:
 #   cp dispatch.local.example.yaml dispatch.yaml
@@ -50,22 +50,21 @@ local:
 #   http_proxy: "http://127.0.0.1:7897"
 #   all_proxy: "http://127.0.0.1:7897"
 
-# No API keys needed — the host CLIs are used as-is. Per-worker `env:` overrides common_env.
+# No API keys needed: Pi uses its own configured host credentials.
 workers:
-  - name: "local-claude"
-    type: "claudecode"
+  - name: "local-pi"
+    type: "pi"
     task_types: [bootstrap, reason, explore]
     max_running: 1
     priority: 0
+    # provider: "<exact-provider-from-pi-list-models>"
+    # model: "<exact-model-id-from-pi-list-models>"
+    # reasoning_effort: "high"
 
-  # - name: "local-codex"
-  #   type: "codex"
-  #   task_types: [explore]
-  #   max_running: 1
-  #   priority: 1
-
-  # - name: "local-pi"
-  #   type: "pi"
-  #   task_types: [reason]
-  #   max_running: 1
-  #   priority: 2
+# Explicit Codex workers remain available, including benchmark configurations
+# requiring a model that is not in Pi's configured catalog. No model is substituted.
+# - name: "local-codex"
+#   type: "codex"
+#   task_types: [bootstrap, reason, explore]
+#   max_running: 1
+#   priority: 1

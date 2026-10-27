@@ -69,7 +69,9 @@ class UsageOutbox:
         self.path = (path or Path(os.environ.get("CAIRN_USAGE_OUTBOX", str(Path.home() / ".local/share/cairn/usage-outbox.db")))).expanduser().resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         _claim_owner(self.path)
-        with self.connect() as conn:
+        # Cold helpers share process ownership but SQLite cannot concurrently
+        # switch a fresh database into WAL while peers initialize its schema.
+        with _OWNER_GUARD, self.connect() as conn:
             conn.executescript("""
                 CREATE TABLE IF NOT EXISTS pending_usage (
                     server_key TEXT NOT NULL, attempt_id TEXT NOT NULL, payload TEXT NOT NULL,
@@ -203,6 +205,8 @@ def invocation_worker(worker, argv):
                 model = argv[index + 1]
             if worker.type == "codex" and value.startswith("model_reasoning_effort="):
                 effort = value.partition("=")[2].strip('"')
+            if worker.type == "pi" and value == "--thinking":
+                effort = argv[index + 1]
     elif worker.type == "claudecode":
         model = env.get("ANTHROPIC_MODEL")
     return worker.model_copy(update={"model": model, "env": env, "reasoning_effort": effort})

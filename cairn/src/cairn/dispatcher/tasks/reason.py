@@ -5,6 +5,7 @@ import time
 import uuid
 
 from cairn.dispatcher.config import DispatchConfig, WorkerConfig
+from cairn.dispatcher.session_capture import link_session_result
 from cairn.dispatcher.goal_expansion import expansion_prompt, recover_expansion
 from cairn.dispatcher.history import add_optional_history
 from cairn.dispatcher.artifacts import capture_required_artifacts
@@ -133,6 +134,7 @@ def run_reason_task(
             command.argv,
             phase="reason_execute",
             usage_client=client, usage_project_id=project.project.id,
+            session_source_fact_ids=sorted(allowed_fact_ids),
             timeout_seconds=config.tasks.reason.timeout,
             lease=lease,
             cancellation=cancellation,
@@ -242,6 +244,7 @@ def run_reason_task(
                     response.text,
                 )
                 return "failed"
+            link_response_result(client, session, project.project.id, response)
             LOG.info(
                 "project completed project=%s worker=%s from=%s execute_ms=%s total_ms=%s",
                 project.project.id,
@@ -270,6 +273,7 @@ def run_reason_task(
                         response.text,
                     )
                     continue
+                link_response_result(client, session, project.project.id, response)
                 created += 1
                 LOG.info(
                     "reason created intent project=%s worker=%s from=%s description=%s",
@@ -309,3 +313,13 @@ def run_reason_task(
     finally:
         lease.stop()
         best_effort_release_reason(client, project.project.id, worker.name)
+
+
+def link_response_result(client, session, project_id, response):
+    # The accepted server response supplies graph IDs. Never infer them from
+    # timestamps, worker names, or the model's proposed text.
+    if response.ok and isinstance(response.data, dict):
+        identifier = response.data.get('id')
+        if isinstance(identifier, str) and 'from' in response.data and 'to' in response.data:
+            link_session_result(client, session, project_id,
+                                intent_ids=[identifier], fact_ids=[response.data['to']] if response.data.get('to') else [])

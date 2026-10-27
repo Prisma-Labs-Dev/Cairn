@@ -1,0 +1,294 @@
+diff --git a/internal/app/app.go b/internal/app/app.go
+index e5a0f33..5628d51 100644
+--- a/internal/app/app.go
++++ b/internal/app/app.go
+@@ -43,7 +43,7 @@ func Main(version string) {
+ 		fmt.Println(version)
+ 		os.Exit(0)
+ 	}
+-	developmentMode := os.Getenv(developmentEnvVar) == "1"
++	developmentMode := true // Cairn viewer never runs autonomous jobs.
+ 
+ 	agentDir := agentdir.Path()
+ 	if err := seedSoundsDir(agentDir); err != nil {
+@@ -55,7 +55,8 @@ func Main(version string) {
+ 		os.Exit(1)
+ 	}
+ 
+-	bindHost := chooseBindHost(*hostOverride)
++	bindHost := "127.0.0.1"
++	_ = hostOverride // Cairn viewer is always loopback-only.
+ 	token := os.Getenv(tokenEnvVar)
+ 	tokenRequired := token == "" && !isLoopbackHost(bindHost) && !*insecure
+ 	if tokenRequired {
+@@ -86,12 +87,12 @@ func Main(version string) {
+ 		AgentDir:            agentDir,
+ 		SessionsDir:         sessionsDir,
+ 		Auth:                authMiddleware,
+-		ChatSender:          manager,
++		ChatSender:          nil,
+ 		Cache:               sessions.NewCache(),
+ 		RenderExportSession: ui.RenderExportSessionPage,
+ 		RenderAppShell:      ui.RenderAppShell,
+ 		Models: func(ctx context.Context) (json.RawMessage, error) {
+-			return defaultModelsCache.get(ctx)
++			return json.RawMessage(`[]`), nil
+ 		},
+ 		Updater:               versionChecker,
+ 		RunInstall:            runInstall,
+@@ -127,7 +128,7 @@ func Main(version string) {
+ 	url := fmt.Sprintf("http://%s", net.JoinHostPort(bindHost, *port))
+ 	var tailscaleURL string
+ 	var tailscaleServe bool
+-	if *hostOverride == "" && !authMiddleware.Enabled() {
++	if false && *hostOverride == "" && !authMiddleware.Enabled() {
+ 		// Tailscale Serve proxies the tailnet to this loopback server, and its
+ 		// hostname would be allowlisted for tokenless access below. Without a
+ 		// token that turns a loopback-only deployment into unauthenticated
+@@ -136,7 +137,7 @@ func Main(version string) {
+ 			"Tailscale Serve not configured: set %s to publish an HTTPS tailnet endpoint.\n"+
+ 				"  Without a token, pi-web stays loopback-only so tailnet peers cannot reach the agent unauthenticated.\n",
+ 			tokenEnvVar)
+-	} else if *hostOverride == "" {
++	} else if false && *hostOverride == "" {
+ 		tsCtx, tsCancel := context.WithTimeout(context.Background(), tailscaleConfigureTimeout)
+ 		tsURL, tsOk, tsErr := configureTailscaleServe(tsCtx, *port)
+ 		tsCancel()
+@@ -188,11 +189,11 @@ func Main(version string) {
+ 		}()
+ 	}
+ 
+-	warmModelsCache()
++	// Cairn: do not start a Pi process or query any model catalog.
+ 
+ 	httpServer := &http.Server{
+ 		Addr:              addr,
+-		Handler:           mux,
++		Handler:           cairnReadOnly(mux),
+ 		ReadHeaderTimeout: 10 * time.Second,
+ 		IdleTimeout:       120 * time.Second,
+ 		// WriteTimeout intentionally 0 — SSE streams are long-lived.
+@@ -209,7 +210,7 @@ func Main(version string) {
+ 	ctx, cancelCtx := context.WithCancel(context.Background())
+ 	defer cancelCtx()
+ 
+-	go versionChecker.Start(ctx)
++	_ = ctx // Cairn: no network update checks.
+ 
+ 	shutdownCode := make(chan int, 1)
+ 	go func() {
+diff --git a/internal/app/cairn_readonly.go b/internal/app/cairn_readonly.go
+new file mode 100644
+index 0000000..aca8178
+--- /dev/null
++++ b/internal/app/cairn_readonly.go
+@@ -0,0 +1,28 @@
++package app
++
++import (
++	"net/http"
++	"strings"
++)
++
++// Cairn publishes only the pinned upstream viewer. Even loopback callers cannot
++// create/resume workers, read arbitrary host files, share externally, or mutate data.
++func cairnReadOnly(next http.Handler) http.Handler {
++	allowed := map[string]bool{
++		"/": true, "/session": true, "/events": true,
++		"/api/session": true, "/api/sessions": true, "/api/settings": true,
++		"/api/worker-status": true, "/api/annotations": true,
++		"/api/chat/queue": true, "/api/projects": true, "/api/scratchpad": true,
++		"/custom-themes.css": true,
++	}
++	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if (r.Method != http.MethodGet && r.Method != http.MethodHead) ||
++			(!allowed[r.URL.Path] && !strings.HasPrefix(r.URL.Path, "/static/assets/")) {
++			http.Error(w, "Cairn session viewer is read-only", http.StatusForbidden)
++			return
++		}
++		w.Header().Set("X-Cairn-Viewer", "read-only")
++		w.Header().Set("Content-Security-Policy", "frame-ancestors 'self'")
++		next.ServeHTTP(w, r)
++	})
++}
+diff --git a/internal/app/cairn_readonly_test.go b/internal/app/cairn_readonly_test.go
+new file mode 100644
+index 0000000..68b200e
+--- /dev/null
++++ b/internal/app/cairn_readonly_test.go
+@@ -0,0 +1,31 @@
++package app
++
++import (
++	"net/http"
++	"net/http/httptest"
++	"testing"
++)
++
++func TestCairnReadOnly(t *testing.T) {
++	gate := cairnReadOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
++	for _, tc := range []struct {
++		method, path string
++		code         int
++	}{
++		{"GET", "/session?id=managed.jsonl", 204},
++		{"GET", "/events?id=managed.jsonl", 204},
++		{"GET", "/static/assets/app.js", 204},
++		{"GET", "/api/session?id=managed.jsonl", 204},
++		{"POST", "/api/chat", 403}, {"GET", "/api/commands", 403},
++		{"GET", "/api/files?path=/etc/passwd", 403},
++		{"GET", "/share?id=managed.jsonl", 403},
++		{"POST", "/api/settings", 403}, {"POST", "/api/new-session", 403},
++		{"GET", "/api/models", 403}, {"GET", "/api/update", 403},
++	} {
++		response := httptest.NewRecorder()
++		gate.ServeHTTP(response, httptest.NewRequest(tc.method, tc.path, nil))
++		if response.Code != tc.code {
++			t.Errorf("%s %s = %d, want %d", tc.method, tc.path, response.Code, tc.code)
++		}
++	}
++}
+diff --git a/internal/server/events.go b/internal/server/events.go
+index 5c03d57..c077fd9 100644
+--- a/internal/server/events.go
++++ b/internal/server/events.go
+@@ -6,9 +6,14 @@ import (
+ 	"net/http"
+ 	"sort"
+ 	"strings"
++	"time"
+ )
+ 
+ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
++	s.handleEventsWithHeartbeat(w, r, 5*time.Second)
++}
++
++func (s *Server) handleEventsWithHeartbeat(w http.ResponseWriter, r *http.Request, interval time.Duration) {
+ 	sessID := r.URL.Query().Get("id")
+ 	if sessID == "" {
+ 		http.Error(w, "missing id", 400)
+@@ -37,6 +42,8 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+ 		flusher.Flush()
+ 	}
+ 
++	heartbeat := time.NewTicker(interval)
++	defer heartbeat.Stop()
+ 	for {
+ 		select {
+ 		case msg, open := <-client.ch:
+@@ -56,6 +63,9 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+ 				fmt.Fprintf(w, "data: %s\n\n", msg)
+ 			}
+ 			flusher.Flush()
++		case <-heartbeat.C:
++			fmt.Fprint(w, ": heartbeat\n\n")
++			flusher.Flush()
+ 		case <-r.Context().Done():
+ 			return
+ 		}
+diff --git a/internal/server/events_test.go b/internal/server/events_test.go
+index 7209b67..f6fe54d 100644
+--- a/internal/server/events_test.go
++++ b/internal/server/events_test.go
+@@ -138,3 +138,28 @@ func TestRecordModTimeBroadcastsReloadForKnownZeroModTime(t *testing.T) {
+ 		t.Fatal("timeout waiting for reload")
+ 	}
+ }
++
++func TestCairnEventsHeartbeatAndDisconnect(t *testing.T) {
++	s := &Server{clients: make([]*sseClient, 0), lastKnown: make(map[string]struct{})}
++	request := httptest.NewRequest(http.MethodGet, "/events?id=fixture.jsonl", nil)
++	ctx, cancel := context.WithCancel(request.Context())
++	defer cancel()
++	recorder := newSyncRecorder()
++	done := make(chan struct{})
++	go func() { s.handleEventsWithHeartbeat(recorder, request.WithContext(ctx), time.Millisecond); close(done) }()
++	waitFor(t, recorder, ": heartbeat")
++	if strings.Contains(recorder.body(), "data:") {
++		t.Fatal("keepalive must not invent activity")
++	}
++	cancel()
++	select {
++	case <-done:
++	case <-time.After(time.Second):
++		t.Fatal("disconnected subscriber was retained")
++	}
++	s.clientsMu.RLock()
++	defer s.clientsMu.RUnlock()
++	if len(s.clients) != 0 {
++		t.Fatal("disconnected subscriber was not removed")
++	}
++}
+diff --git a/internal/server/handlers.go b/internal/server/handlers.go
+index 1bd7ed1..9d4a568 100644
+--- a/internal/server/handlers.go
++++ b/internal/server/handlers.go
+@@ -296,8 +296,8 @@ func sessionResponseMap(session sessions.Session, entries []map[string]any, tota
+ 		"name":               session.Name,
+ 		"total":              total,
+ 		"from":               from,
+-		"chatAvailable":      session.ChatAvailable,
+-		"chatDisabledReason": session.ChatDisabledReason,
++		"chatAvailable":      false,
++		"chatDisabledReason": "Read-only Cairn session. Control the workflow in Cairn.",
+ 		"model":              session.Model,
+ 		"modelProvider":      session.ModelProvider,
+ 	}
+diff --git a/internal/server/status.go b/internal/server/status.go
+index 8b06205..dc942e7 100644
+--- a/internal/server/status.go
++++ b/internal/server/status.go
+@@ -40,7 +40,7 @@ func (s *Server) computeRunningStatus(sessionID string) bool {
+ 			return false
+ 		}
+ 	}
+-	return s.hasRecentSessionActivity(sessionID)
++	return false // Cairn invocation records own activity; file mtime is not runtime proof.
+ }
+ 
+ func (s *Server) runningStatusPayload(sessionID string, running bool) map[string]any {
+diff --git a/internal/ui/embedded/app.html b/internal/ui/embedded/app.html
+index a5c25e2..8a0e32c 100644
+--- a/internal/ui/embedded/app.html
++++ b/internal/ui/embedded/app.html
+@@ -1,7 +1,18 @@
+ {{.LiveDocumentStart}}
+ {{.ThemeBoot}}
+ {{.Bootstrap}}
++<style>
++/* Cairn's pinned read-only build hides controls whose server routes are denied. */
++#right-sidebar, #right-sidebar-resizer, #right-sidebar-backdrop,
++.session-header-projects, .session-header-right, .session-header-back,
++.fork-btn, .label-btn, #pi-btw-button, .pi-btw-window, #pi-chat-message, #pi-chat-attachments,
++.pi-chat-toolbar, .pi-chat-expand-btn, .git-footer { display: none !important; }
++#pi-chat-composer { pointer-events: none; }
++.cairn-viewer-note { padding: 8px 16px; font: 13px system-ui; background: #eef2ff; color: #312e81; }
++.cairn-viewer-note a { color: inherit; text-decoration: underline; margin-right: 16px; }
++</style>
++<div class="cairn-viewer-note" role="note"><a href="/" target="_top">Back to Cairn</a>Read-only Pi transcript. Runtime status and live events are in Cairn.</div>
+ <div id="spa-root"></div>
+ {{.AppScript}}
+-{{.ServiceWorker}}
++<!-- Cairn viewer does not register a service worker on the Cairn origin. -->
+ {{.LiveDocumentEnd}}
+diff --git a/web/src/components/session/SessionShell.svelte b/web/src/components/session/SessionShell.svelte
+index b2afbea..af3edc2 100644
+--- a/web/src/components/session/SessionShell.svelte
++++ b/web/src/components/session/SessionShell.svelte
+@@ -11,7 +11,6 @@
+   import ModelUsageModal from './ModelUsageModal.svelte';
+   import ForkModal from './ForkModal.svelte';
+   import CatGatekeeperSettings from './CatGatekeeperSettings.svelte';
+-  import CatGatekeeper from './CatGatekeeper.svelte';
+   import BtwPopup from './BtwPopup.svelte';
+   import LabelModal from './LabelModal.svelte';
+   import DiffModal from './DiffModal.svelte';
+@@ -261,7 +260,7 @@
+ />
+ 
+ <ShareDialog {sessionId} />
+-<CatGatekeeper />
++<!-- Cairn read-only transcripts never install interactive break/bedtime input blockers. -->
+ <BtwPopup {cwd} parentId={sessionId} />
+ <svelte:element this={"script"} id="session-data" type="application/json" bind:this={dataEl}
+ ></svelte:element>

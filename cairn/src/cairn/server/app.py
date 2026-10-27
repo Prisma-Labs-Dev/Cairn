@@ -6,8 +6,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from cairn import __version__
-from cairn.server import db
-from cairn.server.routers import artifacts, export, hints, intents, projects, runtime, settings, workflows, usage, reviews, workflow_management
+from cairn.server import db, pi_viewer
+from cairn.server.routers import artifacts, export, hints, intents, projects, runtime, settings, workflows, usage, reviews, workflow_management, sessions
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -16,6 +16,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 async def lifespan(app: FastAPI):
     db.configure(db.DEFAULT_DB)
     yield
+    pi_viewer.stop_viewer()
 
 
 app = FastAPI(
@@ -36,6 +37,8 @@ app.include_router(workflow_management.router)
 app.include_router(artifacts.router)
 app.include_router(usage.router)
 app.include_router(reviews.router)
+app.include_router(sessions.router)
+app.include_router(pi_viewer.router)
 
 
 @app.get("/", include_in_schema=False)

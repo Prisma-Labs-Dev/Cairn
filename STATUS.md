@@ -22,6 +22,7 @@ Changes to the original engine are recorded in [Core changes](docs/core-changes.
 - A [workflow authoring guide](docs/workflow-authoring.md) for chains, joins, generated goals, and ranked choices.
 - Live runtime concurrency overrides, dispatcher freshness, and worker pool capacity in the UI.
 - Optional independent completion review, off by default, with frozen evidence and bounded rework.
+- Pi-first worker examples, genuine live JSON event activity, and scoped original-session history through a read-only pi-web viewer.
 - CLI-reported token usage by model and invocation, explicit coverage, durable outbox, and reporter health.
 - Workflow Pause/Resume and recoverable Trash, retaining artifacts, graphs, workspaces, usage, and reviews.
 

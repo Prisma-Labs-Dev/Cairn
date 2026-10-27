@@ -549,6 +549,7 @@
       </div>
       <span class="px-2 py-1 rounded-full text-[10px] uppercase font-semibold" :class="projectStatusBadgeClass(workflow.workflow.status)" x-text="workflowStatusLabel(workflow.workflow.status)"></span>
       <div class="flex flex-wrap justify-end gap-2 w-full sm:w-auto">
+        <button @click="openAgentSessions({workflow_id: workflow.workflow.id}, workflow.workflow.title)" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs text-slate-600 hover:bg-slate-50">Agent sessions</button>
         <button x-show="!workflow.workflow.deleted_at && workflow.workflow.status !== 'completed'" @click="toggleWorkflowStatus()" :disabled="!!workflowActionId" class="px-3 py-1.5 rounded-lg border text-xs disabled:opacity-40" :class="workflow.workflow.status === 'active' ? 'border-amber-200 text-amber-700 hover:bg-amber-50' : 'border-teal-200 text-teal-700 hover:bg-teal-50'" x-text="workflowActionId ? 'Saving...' : workflow.workflow.status === 'active' ? 'Pause workflow' : 'Resume workflow'"></button>
         <button x-show="!workflow.workflow.deleted_at" @click="requestWorkflowDelete(workflow.workflow.id, workflow.workflow.title)" :disabled="!!workflowActionId" class="px-3 py-1.5 rounded-lg border border-rose-200 text-xs text-rose-600 hover:bg-rose-50 disabled:opacity-40">Delete</button>
         <button x-show="workflow.workflow.deleted_at" @click="restoreWorkflow(workflow.workflow.id)" :disabled="!!workflowActionId" class="px-3 py-1.5 rounded-lg border border-brand-200 text-xs text-brand-600 hover:bg-brand-50 disabled:opacity-40">Restore</button>
@@ -711,6 +712,11 @@
                   <p x-show="historyState(stage.project_id).error" x-text="historyState(stage.project_id).error" role="alert" class="text-xs text-rose-600 mt-3 whitespace-pre-wrap break-words"></p>
                 </section>
               </template>
+              <section x-show="stage.project_id" class="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                <h3 class="text-xs font-semibold text-slate-600">Agent sessions</h3>
+                <p class="text-[11px] text-slate-400 mt-1">Read Pi activity and saved conversations for this stage attempt.</p>
+                <button @click="openAgentSessions({project_id: stage.project_id}, stage.title)" class="text-xs font-medium text-brand-600 hover:text-brand-700 mt-2">View live and historical sessions</button>
+              </section>
               <button x-show="stage.project_id" @click="openProject(stage.project_id)" class="text-xs font-medium text-brand-600 hover:text-brand-700 mt-4">Open stage graph &rarr;</button>
             </div>
           </article>
@@ -774,6 +780,7 @@
           </button>
         </div>
       </template>
+      <button @click="openAgentSessions({project_id: selectedProjectId}, project.project.title)" class="px-2.5 py-1 rounded-lg border border-slate-200 text-xs text-slate-600 hover:bg-slate-50 whitespace-nowrap">Agent sessions</button>
       <button @click="viewProjectYaml(selectedProjectId, project.project.title)" class="px-2.5 py-1 rounded-lg border border-slate-200 text-xs text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition flex items-center gap-1.5">
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path d="M14.25 3H7.5A2.25 2.25 0 0 0 5.25 5.25v13.5A2.25 2.25 0 0 0 7.5 21h9a2.25 2.25 0 0 0 2.25-2.25V8.25L14.25 3Z"/><path d="M14.25 3v5.25h4.5"/><path d="M8.25 12h7.5M8.25 15h5.25"/></svg>
         Snapshot
@@ -918,6 +925,11 @@
 
       <!-- Detail -->
       <div x-show="sideTab === 'detail'" class="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/40">
+        <section class="rounded-xl border border-slate-200 bg-white p-3">
+          <h3 class="text-xs font-semibold text-slate-600">Agent sessions</h3>
+          <p class="text-[11px] text-slate-400 mt-1" x-text="selectedNode ? 'Activity linked to the selected graph record.' : 'Pi activity and saved conversations for this project.'"></p>
+          <button @click="openGraphAgentSessions()" class="text-xs font-medium text-brand-600 hover:text-brand-700 mt-2" x-text="selectedNode ? 'View linked sessions' : 'View project sessions'"></button>
+        </section>
         <template x-if="!selectedNode">
           <div class="rounded-2xl border border-dashed border-slate-200 bg-white/80 px-5 py-10 text-center shadow-sm">
             <p class="text-sm text-slate-400">Click a node or edge</p>
@@ -1532,6 +1544,71 @@
   </div>
 </div>
 
+<!-- Agent sessions -->
+<div x-show="agentSessions.open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center overlay p-2 sm:p-5" @click.self="closeAgentSessions()" @keydown.escape.window="if (agentSessions.open) closeAgentSessions()">
+  <section role="dialog" aria-modal="true" aria-labelledby="agent-sessions-title" class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-6xl flex flex-col overflow-hidden" style="height:min(90vh,850px)" @click.stop>
+    <header class="px-4 sm:px-5 py-4 border-b border-slate-200 flex items-start gap-3 shrink-0">
+      <div class="min-w-0 flex-1"><h2 id="agent-sessions-title" class="text-sm font-semibold text-slate-700">Agent sessions</h2><p class="text-xs text-slate-500 mt-1 break-words" x-text="agentSessions.title"></p><p class="text-[11px] text-slate-400 mt-1">Process state and captured Pi events. Goal outcomes remain in the graph.</p></div>
+      <button @click="loadAgentSessions(agentSessions.offset)" :disabled="agentSessions.loading" class="px-2.5 py-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40">Refresh</button>
+      <button @click="closeAgentSessions()" aria-label="Close agent sessions" class="px-2.5 py-1.5 text-xs text-slate-500 hover:bg-slate-100 rounded-lg">Close</button>
+    </header>
+    <div class="flex-1 min-h-0 flex flex-col md:flex-row">
+      <aside class="md:w-80 shrink-0 border-b md:border-b-0 md:border-r border-slate-200 overflow-y-auto p-3 space-y-2 max-h-60 md:max-h-none">
+        <p x-show="agentSessions.error" role="alert" class="text-xs text-rose-600 p-2 break-words" x-text="agentSessions.error"></p>
+        <p x-show="agentSessions.loading && !agentSessions.items.length" class="text-xs text-slate-400 p-2">Loading session records...</p>
+        <p x-show="!agentSessions.loading && !agentSessions.items.length && !agentSessions.error" class="text-xs text-slate-500 p-2">No captured Pi invocations in this scope. Earlier work may predate session capture.</p>
+        <template x-for="session in agentSessions.items" :key="session.id">
+          <button @click="selectAgentSession(session)" class="block w-full text-left rounded-xl border p-3 hover:bg-brand-50/30 transition" :class="agentSessions.selected?.id === session.id ? 'border-brand-300 bg-brand-50/50' : 'border-slate-200 bg-white'">
+            <div class="flex items-start justify-between gap-2"><span class="text-xs font-semibold text-slate-700" x-text="usagePhaseLabel(session.phase)"></span><span class="text-[10px] rounded-full px-2 py-0.5 shrink-0" :class="agentSessionStatusClass(session)" x-text="agentSessionStatus(session)"></span></div>
+            <p class="text-[11px] text-slate-500 break-words mt-1" x-text="`${session.worker_name} · ${session.project_id}`"></p>
+            <p class="text-[10px] text-slate-400 mt-1" x-text="formatDate(session.started_at)"></p>
+            <p class="text-[10px] mt-2" :class="['truncated','unavailable'].includes(session.capture_status) ? 'text-amber-700' : 'text-slate-400'" x-text="agentSessionCaptureLabel(session)"></p>
+          </button>
+        </template>
+        <div x-show="agentSessions.total > 25" class="flex justify-between gap-2 text-xs py-2"><button @click="loadAgentSessions(Math.max(0,agentSessions.offset-25))" :disabled="agentSessions.offset === 0 || agentSessions.loading" class="text-brand-600 disabled:opacity-30">Newer</button><span class="text-slate-400" x-text="`${agentSessions.offset + 1}–${Math.min(agentSessions.offset + agentSessions.items.length,agentSessions.total)} of ${agentSessions.total}`"></span><button @click="loadAgentSessions(agentSessions.nextOffset)" :disabled="agentSessions.nextOffset === null || agentSessions.loading" class="text-brand-600 disabled:opacity-30">Older</button></div>
+      </aside>
+      <main class="flex-1 min-w-0 overflow-y-auto p-4 sm:p-5 bg-slate-50/40">
+        <p x-show="!agentSessions.selected" class="text-sm text-slate-400 py-8 text-center">Choose an invocation to read its activity.</p>
+        <template x-if="agentSessions.selected">
+          <div class="space-y-4">
+            <section class="rounded-xl border border-slate-200 bg-white p-4">
+              <div class="flex flex-wrap items-start justify-between gap-3"><div class="min-w-0"><h3 class="text-sm font-semibold text-slate-700" x-text="`${agentSessions.selected.worker_name} · ${usagePhaseLabel(agentSessions.selected.phase)}`"></h3><p class="text-[11px] text-slate-500 mt-1" x-text="`${agentSessionStatus(agentSessions.selected)} · ${formatDate(agentSessions.selected.started_at)}`"></p></div><a x-show="agentSessionViewerUrl(agentSessions.selected)" :href="agentSessionViewerUrl(agentSessions.selected)" target="_blank" rel="noopener noreferrer" class="px-3 py-1.5 border border-brand-200 text-brand-600 hover:bg-brand-50 rounded-lg text-xs">Open Pi conversation ↗</a></div>
+              <p x-show="agentSessionRuntimeUnconfirmed(agentSessions.selected)" class="text-xs text-amber-700 mt-3">Dispatcher has not confirmed this process recently; quiet activity alone does not prove it stopped.</p>
+              <p class="text-[11px] text-slate-400 mt-2" x-text="agentSessions.selected.runtime_last_reported_at ? `Last dispatcher report ${formatDate(agentSessions.selected.runtime_last_reported_at)}` : 'Dispatcher report time unavailable'"></p>
+              <p class="text-xs mt-3" :class="['truncated','unavailable'].includes(agentSessions.selected.capture_status) ? 'text-amber-700' : 'text-slate-500'" x-text="agentSessionCaptureLabel(agentSessions.selected)"></p>
+              <p class="text-[11px] text-slate-400 mt-2" x-text="agentSessions.selected.delivery_status === 'delivered' ? 'Captured transcript and event bytes acknowledged by Cairn' : 'Captured bytes may still be uploading or awaiting replay'"></p>
+              <p class="text-[11px] text-slate-400 mt-1" x-text="`${formatArtifactSize(agentSessions.selected.bytes_captured || 0)} transcript · ${agentSessions.selected.events_captured || 0} captured activity events`"></p>
+              <p x-show="agentSessions.selected.source_error" class="text-xs text-amber-700 mt-2 whitespace-pre-wrap break-words" x-text="agentSessions.selected.source_error"></p>
+              <dl class="text-[11px] mt-3 space-y-1.5 text-slate-500">
+                <div class="flex gap-2"><dt class="text-slate-400 shrink-0">Project</dt><dd><button @click="openAgentSessionProject(agentSessions.selected.project_id)" class="text-brand-600 hover:text-brand-700 break-all" x-text="agentSessions.selected.project_id"></button></dd></div>
+                <div x-show="agentSessions.selected.workflow_id" class="flex gap-2"><dt class="text-slate-400 shrink-0">Workflow / stage</dt><dd><button @click="openAgentSessionWorkflow(agentSessions.selected.workflow_id)" class="text-brand-600 hover:text-brand-700 break-all" x-text="`${agentSessions.selected.workflow_id || ''} / ${agentSessions.selected.stage_id || ''}`"></button></dd></div>
+                <div x-show="agentSessions.selected.intent_id" class="flex gap-2"><dt class="text-slate-400 shrink-0">Intent / edge</dt><dd><button @click="openAgentSessionGraphRecord(agentSessions.selected.project_id,'intent',agentSessions.selected.intent_id)" class="font-mono text-brand-600 hover:text-brand-700 break-all" x-text="agentSessions.selected.intent_id"></button></dd></div>
+                <div x-show="agentSessions.selected.source_fact_ids?.length" class="flex gap-2"><dt class="text-slate-400 shrink-0">Source facts</dt><dd class="flex flex-wrap gap-x-2 gap-y-1"><template x-for="recordId in agentSessions.selected.source_fact_ids || []" :key="recordId"><button @click="openAgentSessionGraphRecord(agentSessions.selected.project_id,'fact',recordId)" class="font-mono text-brand-600 hover:text-brand-700 break-all" x-text="recordId"></button></template></dd></div>
+                <div x-show="agentSessions.selected.result_fact_ids?.length" class="flex gap-2"><dt class="text-slate-400 shrink-0">Result facts</dt><dd class="flex flex-wrap gap-x-2 gap-y-1"><template x-for="recordId in agentSessions.selected.result_fact_ids || []" :key="recordId"><button @click="openAgentSessionGraphRecord(agentSessions.selected.project_id,'fact',recordId)" class="font-mono text-brand-600 hover:text-brand-700 break-all" x-text="recordId"></button></template></dd></div>
+                <div x-show="agentSessions.selected.result_intent_ids?.length" class="flex gap-2"><dt class="text-slate-400 shrink-0">Created intents</dt><dd class="flex flex-wrap gap-x-2 gap-y-1"><template x-for="recordId in agentSessions.selected.result_intent_ids || []" :key="recordId"><button @click="openAgentSessionGraphRecord(agentSessions.selected.project_id,'intent',recordId)" class="font-mono text-brand-600 hover:text-brand-700 break-all" x-text="recordId"></button></template></dd></div>
+                <div class="flex gap-2"><dt class="text-slate-400 shrink-0">Cairn conversation</dt><dd class="font-mono break-all" x-text="agentSessions.selected.conversation_id"></dd></div>
+                <div class="flex gap-2"><dt class="text-slate-400 shrink-0">Pi session ID</dt><dd class="font-mono break-all" x-text="agentSessionPiId(agentSessions.selected)"></dd></div>
+                <div class="flex gap-2"><dt class="text-slate-400 shrink-0">Invocation / usage ID</dt><dd class="font-mono break-all" x-text="agentSessions.selected.id"></dd></div>
+              </dl>
+            </section>
+            <section class="rounded-xl border border-slate-200 bg-white p-4">
+              <div class="flex flex-wrap justify-between items-center gap-2"><h3 class="text-xs font-semibold text-slate-700">Pi activity</h3><span class="text-[10px] text-slate-400" x-text="agentSessions.connection"></span></div>
+              <p class="text-[11px] text-slate-400 mt-2">Events come from the worker's Pi event stream. The conversation viewer updates when Pi saves messages and tool results.</p>
+              <p x-show="agentSessions.eventError" role="alert" class="text-xs text-rose-600 mt-3 break-words" x-text="agentSessions.eventError"></p>
+              <p x-show="agentSessions.eventsTruncated" class="text-xs text-amber-700 mt-3">Activity capture reached its limit. This view may omit later events.</p>
+              <button x-show="agentSessions.hasEarlier" @click="loadEarlierAgentEvents()" :disabled="agentSessions.loadingEvents" class="text-xs text-brand-600 disabled:opacity-40 mt-3">Load earlier activity</button>
+              <p x-show="agentSessions.loadingEvents && !agentSessions.events.length" class="text-xs text-slate-400 py-4">Loading Pi activity...</p>
+              <p x-show="!agentSessions.loadingEvents && !agentSessions.events.length && !agentSessions.eventError" class="text-xs text-slate-400 py-4" x-text="agentSessions.selected.status === 'running' ? 'Waiting for the first captured Pi event.' : 'No Pi activity events were captured for this invocation.'"></p>
+              <div class="mt-3 space-y-2"><template x-for="record in agentSessions.events" :key="record.sequence"><details class="rounded-lg border border-slate-100 bg-slate-50/70 p-3"><summary class="cursor-pointer text-xs text-slate-600 break-words"><span class="text-[10px] text-slate-400 font-mono mr-2" x-text="`#${record.sequence}`"></span><span class="font-medium" x-text="agentEventLabel(record.event)"></span><span class="block whitespace-pre-wrap break-words mt-1 text-slate-500" x-text="agentEventSummary(record.event)"></span></summary><pre class="mt-3 text-[10px] text-slate-500 whitespace-pre-wrap break-words max-h-60 overflow-auto" x-text="agentEventDetail(record.event)"></pre></details></template></div>
+              <p x-show="agentSessions.events.length >= 100" class="text-[11px] text-slate-400 mt-3">Showing up to 100 events at a time. Open the saved conversation for message history.</p>
+            </section>
+          </div>
+        </template>
+      </main>
+    </div>
+  </section>
+</div>
+
 <!-- Toast -->
 <div x-show="toast.show" x-cloak
   x-transition:enter="transition ease-out duration-300"
@@ -1547,6 +1624,8 @@
 
 <script>
 function cairnApp() {
+  let agentSessionStream = null;
+  let agentSessionReconnectTimer = null;
   return {
     view: 'list',
     projects: [],
@@ -1596,6 +1675,7 @@ function cairnApp() {
       {key:'cache_write_input_tokens',label:'Cache writes'},
       {key:'output_tokens',label:'Output'},
     ],
+    agentSessions: {open:false,title:'',scope:{},items:[],total:0,offset:0,nextOffset:null,loading:false,error:'',requestVersion:0,selectionVersion:0,selected:null,events:[],nextAfter:0,loadingEvents:false,eventError:'',eventsTruncated:false,hasEarlier:false,connection:'',stream:null,reconnectTimer:null},
     stageHistory: {},
     emptyStageHistory: {index:null,selectedSource:null,facts:null,selectedFact:null,loadingIndex:false,loadingFacts:false,loadingFact:false,error:''},
     workflowStageSequence: 1,
@@ -1666,6 +1746,11 @@ function cairnApp() {
     isStoppingAllProjects: false,
 
     async init() {
+      this.$watch('view', () => this.closeAgentSessions());
+      this.$watch('selectedProjectId', () => this.closeAgentSessions());
+      this.$watch('selectedWorkflowId', () => this.closeAgentSessions());
+      this.$watch('selectedNode', () => this.closeAgentSessions());
+      window.addEventListener('pagehide', () => this.closeAgentSessions());
       this._panelResizeMove = (e) => this.onPanelResize(e);
       this._panelResizeStop = () => this.stopPanelResize();
       window.addEventListener('pointermove', this._panelResizeMove);
@@ -1886,6 +1971,239 @@ function cairnApp() {
 
     canActOnSelectedFacts() {
       return this.projectIsActive() && this.selectedFacts.length > 0 && !this.selectedFacts.includes('goal');
+    },
+
+    async openAgentSessions(scope, title) {
+      this.closeAgentSessionStream();
+      const state = this.agentSessions;
+      state.selectionVersion += 1;
+      state.open = true;
+      state.scope = Object.fromEntries(Object.entries(scope).filter(([key,value]) => ['project_id','workflow_id','intent_id','fact_id'].includes(key) && value));
+      state.title = title || state.scope.project_id || state.scope.workflow_id || 'Agent sessions';
+      state.items = [];
+      state.total = 0;
+      state.selected = null;
+      state.events = [];
+      state.error = '';
+      state.eventError = '';
+      await this.loadAgentSessions(0);
+    },
+
+    openGraphAgentSessions() {
+      const scope = {project_id: this.selectedProjectId};
+      if (this.selectedNode?.type === 'intent') scope.intent_id = this.selectedNode.id;
+      if (this.selectedNode?.type === 'fact') scope.fact_id = this.selectedNode.id;
+      return this.openAgentSessions(scope, this.selectedNode ? `${this.project.project.title} · ${this.selectedNode.id}` : this.project.project.title);
+    },
+
+    closeAgentSessionStream() {
+      if (agentSessionStream) agentSessionStream.close();
+      agentSessionStream = null;
+      if (agentSessionReconnectTimer) clearTimeout(agentSessionReconnectTimer);
+      agentSessionReconnectTimer = null;
+    },
+
+    closeAgentSessions() {
+      this.closeAgentSessionStream();
+      this.agentSessions.open = false;
+      this.agentSessions.requestVersion += 1;
+      this.agentSessions.selectionVersion += 1;
+      this.agentSessions.loading = false;
+      this.agentSessions.loadingEvents = false;
+      this.agentSessions.connection = '';
+    },
+
+    async loadAgentSessions(offset = 0, silent = false) {
+      const state = this.agentSessions;
+      if (!state.open || offset === null) return;
+      const version = ++state.requestVersion;
+      const query = new URLSearchParams({...state.scope,limit:'25',offset:String(offset)});
+      state.loading = true;
+      try {
+        const page = await this.api('GET', `/agent-sessions?${query}`);
+        if (!state.open || version !== state.requestVersion) return;
+        state.items = Array.isArray(page.items) ? page.items : [];
+        state.total = page.total || 0;
+        state.offset = offset;
+        state.nextOffset = page.next_offset ?? null;
+        state.error = '';
+        const selected = state.items.find(item => item.id === state.selected?.id);
+        if (selected) state.selected = selected;
+      } catch (e) {
+        if (state.open && version === state.requestVersion) state.error = `Session records could not be loaded: ${e.message}`;
+      } finally {
+        if (version === state.requestVersion) state.loading = false;
+      }
+    },
+
+    async selectAgentSession(session) {
+      this.closeAgentSessionStream();
+      const state = this.agentSessions;
+      const version = ++state.selectionVersion;
+      state.selected = session;
+      state.events = [];
+      state.nextAfter = 0;
+      state.eventError = '';
+      state.eventsTruncated = false;
+      state.hasEarlier = false;
+      state.connection = 'Connecting to captured Pi activity...';
+      state.loadingEvents = true;
+      try {
+        const after = Math.max(0,(session.events_captured || 0)-50);
+        const page = await this.api('GET', `/agent-sessions/${encodeURIComponent(session.id)}/events?after=${after}&limit=50`);
+        if (!state.open || version !== state.selectionVersion) return;
+        this.mergeAgentEvents(page.items || []);
+        state.nextAfter = page.next_after ?? state.nextAfter;
+        state.eventsTruncated = !!page.truncated || !!session.events_truncated;
+        state.hasEarlier = !!state.events.length && state.events[0].sequence > 1;
+      } catch (e) {
+        if (!state.open || version !== state.selectionVersion) return;
+        state.eventError = `Pi activity could not be loaded: ${e.message}`;
+      } finally {
+        if (version === state.selectionVersion) state.loadingEvents = false;
+      }
+      if (state.open && version === state.selectionVersion) this.connectAgentSessionStream(version);
+    },
+
+    mergeAgentEvents(records, earlier = false) {
+      const state = this.agentSessions;
+      const bySequence = new Map(state.events.map(record => [record.sequence,record]));
+      for (const record of records) {
+        if (!Number.isSafeInteger(record.sequence) || record.sequence < 1 || !record.event || typeof record.event !== 'object') continue;
+        bySequence.set(record.sequence,record);
+        state.nextAfter = Math.max(state.nextAfter,record.sequence);
+      }
+      const events = [...bySequence.values()].sort((a,b) => a.sequence-b.sequence);
+      state.events = earlier ? events.slice(0,100) : events.slice(-100);
+      state.hasEarlier = !!state.events.length && state.events[0].sequence > 1;
+    },
+
+    async loadEarlierAgentEvents() {
+      const state = this.agentSessions;
+      if (!state.open || !state.selected || state.loadingEvents || !state.events.length) return;
+      const version = state.selectionVersion;
+      const id = state.selected.id;
+      const after = Math.max(0,state.events[0].sequence-51);
+      state.loadingEvents = true;
+      try {
+        const page = await this.api('GET', `/agent-sessions/${encodeURIComponent(id)}/events?after=${after}&limit=50`);
+        if (!state.open || version !== state.selectionVersion) return;
+        this.mergeAgentEvents((page.items || []).filter(record => record.sequence < state.events[0].sequence),true);
+        state.eventsTruncated = state.eventsTruncated || !!page.truncated;
+      } catch (e) {
+        if (state.open && version === state.selectionVersion) state.eventError = `Earlier activity could not be loaded: ${e.message}`;
+      } finally {
+        if (version === state.selectionVersion) state.loadingEvents = false;
+      }
+    },
+
+    connectAgentSessionStream(version) {
+      const state = this.agentSessions;
+      if (!state.open || !state.selected || version !== state.selectionVersion) return;
+      if (typeof EventSource === 'undefined') { state.connection = 'Live stream unavailable in this browser'; return; }
+      this.closeAgentSessionStream();
+      const id = state.selected.id;
+      const source = new EventSource(`/agent-sessions/${encodeURIComponent(id)}/stream?after=${state.nextAfter}`);
+      agentSessionStream = source;
+      source.onopen = () => {
+        if (state.open && version === state.selectionVersion && agentSessionStream === source) state.connection = 'Browser event stream connected';
+      };
+      source.addEventListener('update', (message) => {
+        if (!state.open || version !== state.selectionVersion || agentSessionStream !== source) return;
+        try {
+          const update = JSON.parse(message.data);
+          if (update.session?.id !== id) return;
+          state.selected = update.session;
+          state.items = state.items.map(item => item.id === id ? update.session : item);
+          this.mergeAgentEvents(update.events || []);
+          state.nextAfter = Math.max(state.nextAfter,update.next_after || 0);
+          state.eventsTruncated = state.eventsTruncated || !!update.truncated || !!update.session.events_truncated;
+          state.eventError = '';
+          // Keep this selected stream subscribed after process completion:
+          // durable replay and paged final events can arrive later.
+        } catch (e) { state.eventError = 'A Pi activity update could not be read. Refresh this invocation to retry.'; }
+      });
+      source.onerror = () => {
+        if (!state.open || version !== state.selectionVersion || agentSessionStream !== source) return;
+        this.closeAgentSessionStream();
+        state.connection = 'Stream disconnected. Reconnecting...';
+        agentSessionReconnectTimer = setTimeout(() => this.connectAgentSessionStream(version),2000);
+      };
+    },
+
+    agentSessionRuntimeUnconfirmed(session) {
+      return session?.status === 'running' && session.runtime_status !== 'running';
+    },
+
+    agentSessionStatus(session) {
+      const status = this.agentSessionRuntimeUnconfirmed(session) ? 'unconfirmed' : session.status;
+      return {running:'Process running',unconfirmed:'Process status unconfirmed',success:'Process finished',failed:'Process failed',cancelled:'Cancelled',timed_out:'Timed out',start_failed:'Start failed',process_error:'Process error',interrupted:'Interrupted'}[status] || 'Process state unavailable';
+    },
+
+    agentSessionStatusClass(session) {
+      if (this.agentSessionRuntimeUnconfirmed(session)) return 'bg-amber-50 text-amber-700';
+      return session.status === 'running' ? 'bg-sky-50 text-sky-700' : this.usageAttemptStatusClass(session.status);
+    },
+
+    agentSessionCaptureLabel(session) {
+      if (this.agentSessionRuntimeUnconfirmed(session) && ['waiting','capturing'].includes(session.capture_status)) return 'Transcript capture unconfirmed';
+      if (session.capture_status === 'complete' && session.delivery_status !== 'delivered') return 'Transcript upload pending';
+      return {waiting:'Waiting for Pi transcript',capturing:'Transcript updating',complete:'Transcript saved',truncated:'Transcript capture limit reached',unavailable:'Transcript unavailable'}[session.capture_status] || 'Capture state unavailable';
+    },
+
+    agentSessionPiId(session) {
+      return session?.pi_session_id || (['waiting','capturing'].includes(session?.capture_status) ? 'Waiting for Pi session header' : 'Pi session header unavailable');
+    },
+
+    agentSessionViewerUrl(session) {
+      const value = session?.viewer_url;
+      if (typeof value !== 'string' || !value.startsWith('/session?')) return '';
+      return value;
+    },
+
+    async openAgentSessionProject(id) {
+      this.closeAgentSessions();
+      await this.openProject(id);
+    },
+
+    async openAgentSessionWorkflow(id) {
+      this.closeAgentSessions();
+      await this.openWorkflow(id);
+    },
+
+    async openAgentSessionGraphRecord(projectId, type, id) {
+      this.closeAgentSessions();
+      await this.openProject(projectId);
+      this.$nextTick(() => {
+        if (this.selectedProjectId !== projectId) return;
+        this.sideTab = 'detail';
+        if (type === 'intent') this.selectIntent(id);
+        else this.selectFact(id);
+      });
+    },
+
+    agentEventLabel(event) {
+      const type = event?.type || 'Pi event';
+      const detail = event?.assistantMessageEvent?.type;
+      return this.usagePhaseLabel(detail ? `${type} · ${detail}` : type);
+    },
+
+    agentEventSummary(event) {
+      const delta = event?.assistantMessageEvent;
+      if (typeof delta?.delta === 'string') return delta.delta.slice(0,600);
+      if (event?.toolName) return `${event.toolName}${event.args ? ` · ${JSON.stringify(event.args)}` : ''}`.slice(0,600);
+      const message = event?.message;
+      if (Array.isArray(message?.content)) {
+        const text = message.content.filter(part => part?.type === 'text' || part?.type === 'thinking').map(part => part.text || part.thinking || '').join('\n');
+        if (text) return text.slice(0,600);
+      }
+      if (typeof event?.errorMessage === 'string') return event.errorMessage.slice(0,600);
+      return '';
+    },
+
+    agentEventDetail(event) {
+      const text = JSON.stringify(event,null,2);
+      return text.length > 6000 ? text.slice(0,6000)+'\n[Event detail shortened for display]' : text;
     },
 
     async loadProjects() {
@@ -2268,11 +2586,19 @@ function cairnApp() {
     },
 
     workflowDisplayStages() {
-      const remaining = [...(this.workflow?.stages || [])];
+      const stages = this.workflow?.stages || [];
+      const remaining = [...stages];
+      // Keep a choice's ranked alternatives together before its following stages.
+      // These are display dependencies only. Skipped/unavailable alternatives do
+      // not become execution prerequisites or count as required goals.
+      const choiceOptions = new Map(stages.filter(stage => stage.expansion?.mode === 'one')
+        .map(stage => [stage.id,stages.filter(option => option.generated_by_stage_id === stage.id).map(option => option.id)]));
+      const displayDependencies = stage => stage.depends_on.flatMap(id =>
+        stage.generated_by_stage_id !== id && choiceOptions.has(id) ? [id,...choiceOptions.get(id)] : [id]);
       const ordered = [];
       const seen = new Set();
       while (remaining.length) {
-        const index = remaining.findIndex(stage => stage.depends_on.every(id => seen.has(id)));
+        const index = remaining.findIndex(stage => displayDependencies(stage).every(id => seen.has(id)));
         if (index < 0) return [...ordered, ...remaining];
         const [stage] = remaining.splice(index, 1);
         ordered.push(stage);
@@ -3381,6 +3707,7 @@ function cairnApp() {
 
     startPolling() {
       this.pollTimer = setInterval(async () => {
+        if (this.agentSessions.open && !this.agentSessions.loading) this.loadAgentSessions(this.agentSessions.offset, true);
         if (this.showExecution || this.view === 'list') await this.loadRuntime();
         if (!this.polling) return;
         if (this.view === 'workflow-trash') { await this.loadWorkflowTrash(); return; }

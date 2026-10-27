@@ -195,10 +195,11 @@ class WorkerConfig(BaseModel):
     max_running: int = Field(gt=0)
     priority: int = Field(ge=0)
     env: dict[str, str] = Field(default_factory=dict)
+    provider: str | None = None
     model: str | None = None
     reasoning_effort: Literal["minimal", "low", "medium", "high", "xhigh"] | None = None
 
-    @field_validator("model")
+    @field_validator("model", "provider")
     @classmethod
     def validate_model(cls, value: str | None) -> str | None:
         if value is None:
@@ -221,8 +222,10 @@ class WorkerConfig(BaseModel):
         # Required LLM env keys (base_url / key / model) are enforced per execution mode by
         # DispatchConfig: container mode needs them, local mode reuses the host CLI config.
         # The checks below are mode-independent and always apply.
-        if self.type != "codex" and (self.model is not None or self.reasoning_effort is not None):
-            raise ValueError("explicit model and reasoning_effort fields currently require a codex worker")
+        if self.type not in ("codex", "pi") and (self.model is not None or self.reasoning_effort is not None):
+            raise ValueError("explicit model and reasoning_effort fields require a codex or pi worker")
+        if self.type != "pi" and self.provider is not None:
+            raise ValueError("explicit provider requires a pi worker")
         if self.type == "pi":
             _validate_optional_positive_int_env(self.name, self.env, "PI_MODEL_CONTEXT_WINDOW")
         if self.type == "mock":
@@ -288,9 +291,12 @@ class DispatchConfig(BaseModel):
             if self.container is None:
                 raise ValueError("container config is required when runtime.execution is container")
             for worker in self.workers:
+                if worker.type == "pi" and worker.provider not in (None, "cairn"):
+                    raise ValueError("container pi workers use the configured cairn provider; provider overrides require local execution")
                 required = WORKER_ENV_KEYS[worker.type]
                 missing = [key for key in required if not worker.env.get(key)
-                           and not (worker.type == "codex" and key == "CODEX_MODEL" and worker.model)]
+                           and not (worker.type == "codex" and key == "CODEX_MODEL" and worker.model)
+                           and not (worker.type == "pi" and key == "PI_MODEL" and worker.model)]
                 if missing:
                     raise ValueError(f"worker {worker.name} missing env keys: {', '.join(missing)}")
         else:  # local: workers reuse the host CLI config, so no LLM env keys are required

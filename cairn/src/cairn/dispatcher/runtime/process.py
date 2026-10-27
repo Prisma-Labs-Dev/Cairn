@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from contextlib import suppress
+import codecs
 from dataclasses import dataclass
 import logging
 import threading
 import time
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Callable, Protocol, runtime_checkable
 
 from docker.errors import APIError, DockerException
 from docker.models.containers import Container
@@ -56,6 +57,7 @@ class ManagedProcess:
         self._cancel_reason: str | None = None
         self._read_error: str | None = None
         self._done = threading.Event()
+        self.stdout_observer: Callable[[str], None] | None = None
 
     def start(self) -> None:
         exec_info = self._api.exec_create(
@@ -118,6 +120,8 @@ class ManagedProcess:
     def _read_stream(self) -> None:
         assert self._exec_id is not None
         stream: Any | None = None
+        stdout_decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        stderr_decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         try:
             stream = self._api.exec_start(
                 self._exec_id,
@@ -127,17 +131,35 @@ class ManagedProcess:
                 demux=True,
             )
             for chunk in stream:
-                stdout, stderr = self._split_chunk(chunk)
+                stdout_raw, stderr_raw = chunk if isinstance(chunk, tuple) else (chunk, None)
+                stdout = stdout_decoder.decode(stdout_raw or b"") if not isinstance(stdout_raw, str) else stdout_raw
+                stderr = stderr_decoder.decode(stderr_raw or b"") if not isinstance(stderr_raw, str) else stderr_raw
                 if stdout:
                     self._stdout.append(stdout)
+                    self._observe_stdout(stdout)
                 if stderr:
                     self._stderr.append(stderr)
         except DockerException as exc:
             self._read_error = str(exc)
         finally:
+            final_stdout = stdout_decoder.decode(b"", final=True)
+            final_stderr = stderr_decoder.decode(b"", final=True)
+            if final_stdout:
+                self._stdout.append(final_stdout)
+                self._observe_stdout(final_stdout)
+            if final_stderr:
+                self._stderr.append(final_stderr)
             self._close_stream(stream)
             self._returncode = self._resolve_exit_code()
             self._done.set()
+
+    def _observe_stdout(self, chunk: str) -> None:
+        if self.stdout_observer is None:
+            return
+        try:
+            self.stdout_observer(chunk)
+        except Exception:
+            LOG.warning("worker stdout observer failed; execution continues")
 
     @staticmethod
     def _close_stream(stream: Any | None) -> None:

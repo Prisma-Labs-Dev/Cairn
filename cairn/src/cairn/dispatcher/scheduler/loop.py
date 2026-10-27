@@ -18,6 +18,7 @@ from cairn.dispatcher.runtime.cancellation import TaskCancellation
 from cairn.dispatcher.runtime.containers import ContainerManager
 from cairn.dispatcher.runtime.local_backend import LocalBackend
 from cairn.dispatcher.usage_reporting import flush_usage, ensure_usage_owner
+from cairn.dispatcher.session_capture import flush_sessions
 from cairn.dispatcher.runtime.startup_healthcheck import format_failure_summary, run_startup_healthchecks
 from cairn.dispatcher.scheduler.worker_select import choose_worker
 from cairn.dispatcher.workers.registry import get_driver
@@ -103,6 +104,7 @@ class DispatcherLoop:
                     self._reap_futures()
                     self._reap_cleanup_futures()
                     flush_usage(self.client)
+                    flush_sessions(self.client)
                     self._apply_runtime_settings(self.client.get_runtime_settings())
                     summaries = self.client.list_projects()
                     self._initialize_reason_checkpoints(summaries)

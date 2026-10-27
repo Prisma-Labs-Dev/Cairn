@@ -5,6 +5,7 @@ import time
 import uuid
 
 from cairn.dispatcher.config import DispatchConfig, WorkerConfig
+from cairn.dispatcher.session_capture import link_session_result
 from cairn.dispatcher.goal_expansion import expansion_prompt, recover_expansion
 from cairn.dispatcher.history import add_optional_history
 from cairn.dispatcher.artifacts import capture_required_artifacts
@@ -111,6 +112,7 @@ def run_bootstrap_task(
             execute.argv,
             phase="bootstrap",
             usage_client=client, usage_project_id=project.project.id,
+            session_intent_id=intent.id, session_source_fact_ids=intent.from_,
             timeout_seconds=config.tasks.bootstrap.timeout,
             lease=lease,
             cancellation=cancellation,
@@ -325,6 +327,7 @@ def _try_conclude_fallback(
         conclude_argv,
         phase="bootstrap_conclude",
         usage_client=client, usage_project_id=project.project.id,
+            session_intent_id=intent.id, session_source_fact_ids=intent.from_,
         timeout_seconds=config.tasks.bootstrap.conclude_timeout,
         lease=lease,
         cancellation=cancellation,
@@ -465,6 +468,7 @@ def _write_bootstrap_complete_result(
         )
         return "success"
 
+    link_session_result(client, producer_session_id, project_id, fact_ids=[conclude.fact_id], intent_ids=[intent_id])
     if unavailable:
         response = client.unavailable(project_id, [conclude.fact_id], complete_description, worker_name)
         return "success" if response.ok or response.status_code == 403 else "failed"
@@ -505,6 +509,8 @@ def _write_bootstrap_complete_result(
             response.text,
         )
         return "success"
+    if isinstance(response.data, dict) and response.data.get('to') == 'goal' and isinstance(response.data.get('id'), str):
+        link_session_result(client, producer_session_id, project_id, fact_ids=['goal'], intent_ids=[response.data['id']])
     if total_ms is None:
         LOG.info(
             "bootstrap completed project=%s intent=%s worker=%s source=%s from=%s phase_ms=%s",
