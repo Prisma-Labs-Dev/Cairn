@@ -26,7 +26,7 @@ Unknown fields are `null`, while an actual reported zero stays `0`. If a CLI rep
 
 These are CLI telemetry readings, not an independent provider invoice. Future CLI format changes may reduce coverage; they must not create invented values.
 
-Format references: [Codex non-interactive JSON events](https://learn.chatgpt.com/docs/non-interactive-mode), [Claude headless output](https://code.claude.com/docs/en/headless), [Claude usage and cost tracking](https://code.claude.com/docs/en/agent-sdk/cost-tracking), and [Anthropic cache accounting](https://platform.claude.com/docs/en/build-with-claude/prompt-caching). Pi fields and event sequencing were checked against the installed `@earendil-works/pi-coding-agent`, `pi-agent-core`, and `pi-ai` sources; see [Pi source](https://github.com/badlogic/pi-mono).
+Format references: [Codex non-interactive JSON events](https://learn.chatgpt.com/docs/non-interactive-mode), [Claude headless output](https://code.claude.com/docs/en/headless), [Claude usage and cost tracking](https://code.claude.com/docs/en/agent-sdk/cost-tracking), and [Anthropic cache accounting](https://platform.claude.com/docs/en/build-with-claude/prompt-caching). Pi fields and event sequencing were checked against the installed `@earendil-works/pi-coding-agent`, `pi-agent-core`, and `pi-ai` sources; see [Pi source](https://github.com/earendil-works/pi).
 
 ## Persistence and reporting health
 

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import logging
+import codecs
 import os
 import signal
 import subprocess
 import threading
 from contextlib import suppress
+from typing import Callable
 
 from cairn.dispatcher.runtime.process import ProcessResult
 
@@ -46,6 +48,7 @@ class LocalProcess:
         self._timed_out = False
         self._cancel_reason: str | None = None
         self._kill_lock = threading.Lock()
+        self.stdout_observer: Callable[[str], None] | None = None
 
     def start(self) -> None:
         self._process = subprocess.Popen(
@@ -60,7 +63,7 @@ class LocalProcess:
             start_new_session=True,
         )
         self._stdout_thread = threading.Thread(
-            target=self._drain, args=(self._process.stdout, self._stdout_chunks), daemon=True
+            target=self._drain, args=(self._process.stdout, self._stdout_chunks, self.stdout_observer), daemon=True
         )
         self._stderr_thread = threading.Thread(
             target=self._drain, args=(self._process.stderr, self._stderr_chunks), daemon=True
@@ -124,10 +127,21 @@ class LocalProcess:
                 process.send_signal(sig)
 
     @staticmethod
-    def _drain(pipe, sink: list[str]) -> None:
+    def _drain(pipe, sink: list[str], observer: Callable[[str], None] | None = None) -> None:
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         try:
-            for chunk in iter(lambda: pipe.read(READ_CHUNK_SIZE), ""):
-                sink.append(chunk)
+            while True:
+                raw = os.read(pipe.fileno(), READ_CHUNK_SIZE)
+                chunk = decoder.decode(raw, final=not raw)
+                if chunk:
+                    sink.append(chunk)
+                    if observer is not None:
+                        try:
+                            observer(chunk)
+                        except Exception:
+                            LOG.warning("worker stdout observer failed; execution continues")
+                if not raw:
+                    break
         except (ValueError, OSError):
             pass
         finally:

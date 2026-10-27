@@ -7,7 +7,7 @@ from pathlib import Path
 
 from cairn.dispatcher.config import LocalConfig
 from cairn.dispatcher.runtime.local_process import LocalProcess
-from cairn.dispatcher.runtime.artifact_files import read_relative_file
+from cairn.dispatcher.runtime.artifact_files import read_relative_file, read_session_chunk
 
 LOG = logging.getLogger(__name__)
 
@@ -65,6 +65,9 @@ class LocalBackend:
 
     def read_file(self, container_name: str, path: str, max_bytes: int) -> bytes:
         return read_relative_file(Path(container_name), path, max_bytes)
+
+    def read_session_chunk(self, container_name: str, path: str, offset: int, max_bytes: int) -> bytes:
+        return read_session_chunk(Path(container_name), path, offset, max_bytes)
 
     def needs_completed_cleanup(self, project_id: str) -> bool:
         return self._config.completed_action == "remove" and self._project_dir(project_id).exists()

@@ -1,0 +1,179 @@
+# Pi sessions and live activity
+
+Pi is the primary worker in `dispatch.local.example.yaml` and `dispatch.example.yaml`.
+Cairn's dispatcher still owns claims, graph writes, cancellation, runtime limits, artifacts,
+review gates, and ranked-choice recovery. The viewer cannot control a worker.
+
+Open **Agent sessions** from a workflow, stage, project, fact, or intent edge. The list retains
+finished, failed, cancelled, timed-out, and interrupted invocations as well as current work.
+Selecting a graph record filters through stored IDs, including source facts and accepted
+result facts or intents. Earlier choice attempts keep their original project/stage association.
+Pause and recoverable Trash retain this history.
+
+Each process has an invocation ID matching its usage-ledger UUID. Execute and same-session
+conclude share one Cairn conversation ID, but have separate invocation records and events.
+The original Pi header ID is stored separately and shown as **Pi session ID**. Cairn never
+rewrites the header, message IDs, timestamps, or content to make those IDs agree.
+
+## Build and run the read-only viewer
+
+Install Go, Node/npm, and Git, then run from this repository:
+
+```sh
+python3 scripts/build-pi-web.py
+uv run --project cairn cairn serve
+uv run --project cairn cairn dispatch --config dispatch.local.example.yaml
+```
+
+The build checks out [pi-web](https://github.com/ygncode/pi-web) at
+[`4a77ea5d662b2ef4fa20563b90dac823581614b7`](https://github.com/ygncode/pi-web/tree/4a77ea5d662b2ef4fa20563b90dac823581614b7),
+applies the checked-in [read-only patch](../vendor/pi-web/readonly.patch), builds its frontend
+from the upstream lockfile, runs the patch's route-denial tests, and builds its Go executable.
+The upstream MIT [license](../vendor/pi-web/LICENSE) is retained. Nothing installs a Pi
+extension, launch agent, global service, or Tailscale configuration. npm lifecycle scripts are
+disabled during dependency installation. Rebuild after changing the pin or patch.
+
+By default the executable is `~/.cache/cairn/pi-web/<commit>/pi-web`.
+`CAIRN_PI_WEB_BINARY` on the server can select another locally built copy. A missing build
+returns a clear 503 when its conversation link is opened; captured activity/history remains
+available in Cairn.
+
+The binary must match the server's operating system and architecture. A containerized server
+needs a Linux build copied or mounted inside that server and selected with
+`CAIRN_PI_WEB_BINARY`; the existing Python application image does not bundle Go/Node or
+a viewer executable. The local build used for browser checks is a macOS binary.
+
+The server starts a child viewer on demand, bound to a random loopback port, and stops it
+with the Cairn server. The child receives a separate HOME/agent directory and no worker
+authentication environment. It reads only Cairn's mirrored session files. The default directory
+is `pi-viewer` beside the server SQLite database. `CAIRN_PI_VIEWER_DIR` can override it, but
+host Pi configuration, credential files, unrelated session directories, and symlinks are rejected.
+
+The original pi-web frontend uses root URLs. Cairn reserves `/session`, `/events`, selected
+`/api/*` GET routes, `/custom-themes.css`, and `/static/assets/*` for an allowlisted same-origin
+proxy registered before Cairn's static mount. Cairn's dashboard `/` and existing `/settings`
+API retain their behavior. Transcript links open a separate tab, including on phones, and
+**Back to Cairn** performs a full navigation to the dashboard. No JavaScript URL rewriting is
+used. The patch disables service-worker registration on the shared Cairn origin and removes
+upstream's interactive break/bedtime component, which otherwise blocks transcript input at night.
+
+Both the gateway and child reject writes, new/forked sessions, chat, model loading, commands,
+external sharing, updates, and arbitrary host-file routes. Autonomous title generation,
+queues, schedules, model-cache warmup, update checks, and Tailscale setup are disabled.
+Write-only controls are hidden, chat is disabled in the response, and the upstream recent-file
+mtime fallback cannot claim a worker is running. Cairn's invocation records own runtime state. Viewer SSE connections send five-second
+comment keepalives, use a finite ten-second upstream read timeout, and explicitly close
+the upstream response on browser disconnect so idle tabs cannot strand the server child.
+The viewer remains a local source viewer; it is not an independent authentication system.
+
+## Frontend dependency audit
+
+The pinned frontend lockfile was audited on 2026-10-27. The complete development install
+reports 12 affected packages, including nine high and three moderate package ratings.
+These advisories remain in the pinned build/test toolchain; this is not a clean full audit.
+The affected packages are `@vitest/mocker`, `brace-expansion`, `devalue`, `nanoid`, `postcss`,
+`postcss-selector-parser`, `smol-toml`, `source-map-js`, `undici`, `vite`, `vitest`, and `zod`.
+
+The same lockfile's `npm audit --omit=dev` reports zero advisories. Because development flags
+alone do not prove what a browser receives, both production builds were also inspected using
+Vite's emitted chunk module lists. None of those 12 packages occurs in either the 1,068-module
+application build or 156-module export build. Svelte's browser runtime is present; the flagged
+`devalue` dependency is imported by Svelte's server renderer/hydration serializer and is absent
+from these client builds. The Go server embeds static frontend output and runs no Node/Vite,
+Vitest, jsdom, or knip process. The builder does not start their development servers or process
+worker sessions as build input. The build-only advisory set is retained explicitly rather than
+applying unreviewed dependency upgrades to the pinned viewer. Re-audit the lockfile and emitted
+modules when updating the pin or build configuration.
+
+## Capture, bounds, and recovery
+
+Every managed Pi execution uses JSON print mode and an explicit source path:
+
+```text
+pi --mode json --session cairn-sessions/<conversation UUID>.jsonl ... -p <prompt>
+```
+
+The path is relative to the managed runtime workspace. Conclude resumes that exact file.
+Host and Docker backends read it incrementally with directory-descriptor traversal, reject
+symlinks and nonregular files, and never search `~/.pi`. A capture thread copies actual bytes
+while the process runs and finishes the local copy before runtime cleanup. A changed source
+header stops capture and retains earlier bytes instead of mixing conversations.
+
+The dispatcher separately records genuine Pi JSON stdout events as they arrive. These power
+the live activity stream, including text/tool progress before Pi flushes a durable message.
+They are never converted into fabricated Pi session entries. A first session file can be absent
+until Pi has produced its first assistant message. **Process running**, **waiting for transcript**,
+**transcript updating**, **saved**, **unavailable**, and **truncated** therefore have different meanings.
+Process completion and local source capture do not establish server delivery. Metadata reports
+`delivery_status: pending` with raw/event byte targets until every captured byte is acknowledged.
+Only then can the UI say **transcript saved**. Selected event streams remain subscribed after
+process completion so delayed replay and every final event page can arrive.
+Graph refreshes are not presented as activity logs. A dispatcher heartbeat arrives every
+five seconds even during quiet model work. After 45 seconds without confirmation, the UI
+labels a last-reported running process **unconfirmed**; it does not infer death from silence.
+Restart replay records interrupted work without dropping already uploaded bytes/events.
+
+Transport chunks are at most 256 KiB. A conversation retains at most 16 MiB of original JSONL;
+each invocation retains at most 4 MiB of JSON events. Oversized events and partial stdout tails
+are explicitly marked incomplete. Default event reads return 50 records, capped at 100; the
+UI retains at most 100 displayed records and supports earlier pages. Source and event limits
+are independent. A cap, missing file, unreadable source, or failed final capture is visible
+rather than reported as a complete transcript.
+
+A separate durable dispatcher spool lives under `~/.local/share/cairn/session-outbox`,
+partitioned by server URL. Set `CAIRN_SESSION_OUTBOX` to another persistent directory per
+dispatcher. An exclusive advisory lock prevents simultaneous owners of that partition.
+The server directory and dispatcher spool both require persistent storage in containers.
+The source reader supports Docker, but a live provider-backed Docker session has not been
+used as proof for this change. Tests exercise the actual reader script and fake Docker API.
+
+API outages do not change worker results. Copies remain in the spool after workspace cleanup
+and replay on later scheduler ticks. Byte offsets, verified overlapping replay, immutable
+invocation identity, and delivery receipts make retries idempotent without starving newer
+captures. Server replay reconciles fsynced files after a SQLite commit interruption. A restarted
+dispatcher marks an unfinished invocation interrupted; bytes/events never captured before a
+hard crash cannot be recovered. Disk failure can still prevent persistence. There is no
+automatic history expiry or permanent deletion in this change.
+
+Raw message content is separate from the metrics-only usage ledger. Usage parsing, cache-read
+and uncached-input distinctions, coverage, claim rules, review identity checks, and runtime
+caps keep their existing behavior. Non-Pi legacy invocations have usage records but no invented
+session transcript. There is no new Claude viewer.
+
+## Explicit models
+
+Local Pi reuses its configured credentials. Optional `provider`, `model`, and
+`reasoning_effort` worker fields select an exact model and Pi thinking level. Before an explicit
+local model executes, an offline bounded `pi --list-models` check requires one exact catalog
+match. The guard executes that exact matched provider/model pair using Pi's canonical
+reference encoding, rather than letting Pi reinterpret the original selector against unrelated
+configured or builtin providers. Fuzzy-only, ambiguous, or unavailable IDs fail visibly. Omitted fields retain Pi defaults.
+Container Pi uses its isolated `cairn` provider configuration, with `model` overriding `PI_MODEL`.
+
+The installed Pi 0.78.0 catalog checked during implementation did not contain Luna. This is
+an observed local configuration limit, not proof that no provider can offer it. Configure an
+actual supported Pi provider/model before selecting it. Cairn neither invents a Luna alias nor
+substitutes another model. The existing explicit Codex benchmark route remains available.
+No live Luna benchmark or paid model call was made for this integration.
+
+Pi's current [SDK](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md)
+and [RPC protocol](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc.md)
+are independent alternatives for future integrations. This implementation keeps Python's
+process boundary and does not require a core rewrite.
+
+## API and verification
+
+- `POST /agent-sessions` registers or updates one bounded invocation record.
+- `POST /agent-sessions/{id}/chunks` and `/event-chunks` append base64 bytes at an explicit offset.
+- `POST /agent-conversations/{id}/results` records accepted graph IDs after writeback.
+- `GET /agent-sessions` filters by workflow, project, intent, or fact with bounded pages.
+- `GET /agent-sessions/{id}/events` reads selected events by sequence cursor.
+- `GET /agent-sessions/{id}/stream` sends real changes through SSE and comments for keepalives.
+- `GET /session?id=<Cairn conversation UUID>.jsonl` opens the pinned read-only viewer.
+
+Tests cover real harmless host subprocesses, live file append, source identity, cancellation,
+final capture before cleanup, outbox restart/outage replay, overlap/crash recovery, exact-model
+selection, source/result filters, old choice attempts, paused/Trash retention, bounds,
+unknown sources, callback failures, viewer scope, and static-route ordering. Browser fixture
+checks cover desktop and phone layouts, actual SSE append, final state, and same-origin pi-web.
+Fixtures are labeled and do not represent a model run or independent research result.

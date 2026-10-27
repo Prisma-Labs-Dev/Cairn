@@ -72,6 +72,16 @@ class CairnClient:
     def publish_runtime(self, dispatcher_id: str, report: DispatcherReport) -> ApiResult:
         return self._request_json("POST", f"/runtime/dispatchers/{dispatcher_id}", report.model_dump())
 
+    def record_session_invocation(self, payload: dict) -> ApiResult:
+        return self._record_usage("/agent-sessions", payload)
+
+    def record_session_chunk(self, invocation_id: str, payload: dict, *, events=False) -> ApiResult:
+        suffix = "event-chunks" if events else "chunks"
+        return self._record_usage(f"/agent-sessions/{invocation_id}/{suffix}", payload)
+
+    def record_session_result(self, conversation_id: str, payload: dict) -> ApiResult:
+        return self._record_usage(f"/agent-conversations/{conversation_id}/results", payload)
+
     def record_usage_reporter(self, payload: dict) -> ApiResult:
         return self._record_usage("/usage/reporters", payload)
 

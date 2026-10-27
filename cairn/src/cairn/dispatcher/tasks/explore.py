@@ -114,6 +114,7 @@ def run_explore_task(
             phase="explore_execute",
             timeout=config.tasks.explore.timeout,
             usage_client=client, usage_project_id=project.project.id,
+            session_intent_id=intent.id, session_source_fact_ids=intent.from_,
             lease=lease,
             cancellation=cancellation,
         )
@@ -318,6 +319,7 @@ def _try_conclude_fallback(
         phase="explore_conclude",
         timeout=config.tasks.explore.conclude_timeout,
         usage_client=client, usage_project_id=project_id,
+        session_intent_id=intent.id, session_source_fact_ids=intent.from_,
         lease=lease,
         cancellation=cancellation,
     )
@@ -402,6 +404,8 @@ def _run_process(
     cancellation: TaskCancellation,
     usage_client=None,
     usage_project_id: str | None = None,
+    session_intent_id: str | None = None,
+    session_source_fact_ids: list[str] | None = None,
 ):
     return run_worker_process(
         container_manager,
@@ -413,4 +417,5 @@ def _run_process(
         lease=lease,
         cancellation=cancellation,
         usage_client=usage_client, usage_project_id=usage_project_id,
+        session_intent_id=session_intent_id, session_source_fact_ids=session_source_fact_ids,
     )

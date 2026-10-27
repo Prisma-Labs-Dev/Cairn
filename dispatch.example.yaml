@@ -53,36 +53,18 @@ container:
 
 
 workers:
-  # Worker priority is ascending: lower numbers are preferred first.
-  # max_running is per-worker concurrency. Slower backends such as Pi usually benefit from lower values.
-  - name: "claudecode_deepseek-v4-pro"
-    type: "claudecode"
+  # Pi is the primary worker. Supply a real provider endpoint, exact model ID,
+  # API format and key before dispatching. No example model alias is assumed.
+  - name: "pi-default"
+    type: "pi"
     task_types: [bootstrap, reason, explore]
     max_running: 2
     priority: 0
     env:
-      ANTHROPIC_MODEL: "deepseek-v4-pro"
-      ANTHROPIC_BASE_URL: "https://api.deepseek.com/anthropic"
-      ANTHROPIC_AUTH_TOKEN: "sk-xxx"
-
-  # - name: "codex_qwen3.6-plus"
-  #   type: "codex"
-  #   task_types: [bootstrap,reason,explore]
-  #   max_running: 2
-  #   priority: 0
-  #   env:
-  #     CODEX_MODEL: "qwen3.6-plus"
-  #     CODEX_BASE_URL: "https://dashscope.aliyuncs.com/compatible-mode/v1"
-  #     OPENAI_API_KEY: "sk-xxx"
-
-  # - name: "pi_qwen3.6-plus"
-  #   type: "pi"
-  #   task_types: [bootstrap,reason,explore]
-  #   max_running: 2
-  #   priority: 0
-  #   env:
-  #     PI_MODEL: "qwen3.6-plus"
-  #     PI_BASE_URL: "https://dashscope.aliyuncs.com/compatible-mode/v1"
-  #     PI_API_KEY: "sk-xxx"
-  #     PI_PROVIDER_API: "openai-completions"
-  #     PI_MODEL_CONTEXT_WINDOW: "262144"
+      PI_MODEL: "<exact-model-id>"
+      PI_BASE_URL: "https://<provider-base-url>"
+      PI_API_KEY: "<provider-api-key>"
+      PI_PROVIDER_API: "openai-completions"
+      # PI_MODEL_CONTEXT_WINDOW: "<positive-integer>"
+    # model overrides PI_MODEL; provider must remain omitted or "cairn" in containers.
+    # reasoning_effort: "high"

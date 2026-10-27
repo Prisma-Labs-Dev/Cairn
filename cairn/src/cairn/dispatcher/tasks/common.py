@@ -6,6 +6,7 @@ import uuid
 from dataclasses import dataclass
 
 from cairn.dispatcher.config import DispatchConfig, WorkerConfig
+from cairn.dispatcher.session_capture import start_capture
 from cairn.dispatcher.protocol.client import CairnClient
 from cairn.dispatcher.runtime.cancellation import TaskCancellation
 from cairn.dispatcher.runtime.containers import ContainerManager
@@ -83,6 +84,8 @@ def run_worker_process(
     cancellation: TaskCancellation | None = None,
     usage_client=None,
     usage_project_id: str | None = None,
+    session_intent_id: str | None = None,
+    session_source_fact_ids: list[str] | None = None,
 ) -> ProcessResult:
     LOG.info(
         "starting container exec container=%s worker=%s phase=%s timeout=%ss",
@@ -98,10 +101,20 @@ def run_worker_process(
         raise
     except Exception:
         LOG.error("usage attempt initialization failed; worker execution continues")
+    capture = None
+    try:
+        capture = start_capture(usage_client, container_manager, container_name, worker, phase, usage_project_id, argv, telemetry,
+                                intent_id=session_intent_id, source_fact_ids=session_source_fact_ids)
+    except UsageOutboxOwnershipError:
+        raise
+    except Exception:
+        LOG.error("Pi session capture initialization failed; worker execution continues")
     result = None
     error_status = "start_failed"
     try:
         process = container_manager.build_exec_process(container_name, dict(worker.env), argv, timeout_seconds=timeout_seconds)
+        if capture is not None:
+            process.stdout_observer = capture.observe_stdout
         process.start()
         error_status = "process_error"
         if lease is not None:
@@ -116,6 +129,11 @@ def run_worker_process(
             lease.attach_process(None)
         if cancellation is not None:
             cancellation.attach_process(None)
+        if capture is not None:
+            try:
+                capture.finish(result, error_status)
+            except Exception:
+                LOG.error("Pi session finalization failed; capture spool retained")
         try:
             finish_attempt(telemetry, usage_client, worker, argv, result, error_status)
         except Exception:

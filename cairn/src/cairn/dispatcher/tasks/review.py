@@ -46,7 +46,8 @@ def run_review_task(config, client, container_manager, project, worker, cancella
         command = driver.build_execute(worker, prompt, session)
         result = run_worker_process(container_manager, container_name, worker, command.argv, phase='review_execute',
                                     timeout_seconds=config.tasks.reason.timeout, lease=lease, cancellation=cancellation,
-                                    usage_client=client, usage_project_id=project.project.id)
+                                    usage_client=client, usage_project_id=project.project.id,
+                                    session_source_fact_ids=claim.get("completion", {}).get("from", []))
         if cancellation.is_cancelled or result.cancelled:
             return 'cancelled'
         if lease.failure is not None or did_timeout(result) or result.returncode != 0:

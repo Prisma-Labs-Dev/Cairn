@@ -179,6 +179,8 @@ def configure(path: Path) -> None:
         _ensure_workflow_columns(conn)
         _ensure_project_columns(conn)
         _ensure_workflow_stage_columns(conn)
+        from cairn.server.session_service import ensure_schema as ensure_session_schema
+        ensure_session_schema(conn)
         from cairn.server.verification_service import ensure_schema
         ensure_schema(conn)
         from cairn.server.workflow_context import migrate_legacy_stage_contexts

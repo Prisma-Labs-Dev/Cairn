@@ -209,7 +209,8 @@ def decide_review(conn, claim_id, body: ReviewDecisionRequest):
     if body.decision == 'approved':
         from cairn.server.models import CompleteRequest
         from cairn.server.routers.projects import apply_completion
-        apply_completion(conn, project, CompleteRequest.model_validate(claim.completion))
+        accepted = apply_completion(conn, project, CompleteRequest.model_validate(claim.completion))
+        conn.execute("UPDATE completion_claims SET payload_json=json_set(payload_json,'$.accepted_completion_intent_id',?) WHERE id=?", (accepted.id, claim_id))
     else:
         iid = next_intent_id(conn, project['id'])
         conn.execute('INSERT INTO intents(id,project_id,description,creator,created_at) VALUES(?,?,?,?,?)',

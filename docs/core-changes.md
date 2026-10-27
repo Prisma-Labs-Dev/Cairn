@@ -150,7 +150,9 @@ This adds durable dispatcher state at `~/.local/share/cairn/usage-outbox.db`, ov
 `CAIRN_USAGE_OUTBOX`. The Compose dispatcher now mounts its own durable data directory.
 Each scheduling process requires a separate outbox path. An exclusive operating-system
 advisory lock rejects another process using the same resolved path before startup probes
-or worker execution. Threads reuse the owner's lock, and exit or crash releases it. Do not
+or worker execution. Threads reuse the owner's lock; cold WAL and schema initialization are
+serialized under the same process mutex so concurrent first-use helpers cannot race SQLite's
+journal-mode switch. Exit or crash releases process ownership. Do not
 remove the lock sidecar while a dispatcher is running. A hard crash cannot recover token
 counters that were never persisted, and disk failure can still prevent accounting.
 
@@ -214,6 +216,52 @@ that content type. Nonempty JSON responses still use the existing decoding path.
 
 Proof is the empty-204 regression in
 [runtime client tests](../cairn/tests/test_runtime_controls.py).
+
+## Managed Pi sessions and live activity
+
+Before, Pi selected JSON mode and a temporary worker session directory; the dispatcher only
+learned the session ID after the process ended. Task stdout was buffered for final parsing,
+and graph claims were not a durable per-invocation activity history. The viewer change makes
+Pi the primary worker in the shipped examples and assigns an explicit managed source path
+`cairn-sessions/<UUID>.jsonl` before execution. Conclude resumes that exact file. The original
+Pi header ID remains separate and unchanged.
+
+Both process backends now notify an optional observer while draining stdout, preserving
+split UTF-8 and isolating observer failures from process results. A separate bounded capture
+store retains genuine Pi JSON events and incremental original JSONL bytes. Invocation IDs
+match usage attempt UUIDs; explicit workflow/project/stage/intent/source/result links survive
+ended runs, pause/Trash, and fresh choice retries. An explicit dispatcher heartbeat distinguishes
+currently confirmed runtime state from an unconfirmed last report after a hard crash. Approved
+review claims retain the exact accepted completion intent ID so producer and reviewer sessions
+link to the final goal even if their capture arrives later. This does not replace claims, usage parsing,
+review identities, fallback guards, artifacts, or runtime limits. Non-Pi histories are not invented.
+
+Local Pi accepts explicit provider/model/thinking fields. An offline exact-catalog preflight
+rejects absent, fuzzy-only, or ambiguous local model IDs before model execution. It carries
+the verified provider/model pair into execution, including slash-containing model IDs, rather
+than executing the original ambiguous selector. Installed pure-resolver tests verify that handoff. Container Pi
+retains its isolated provider and uses the explicit model over `PI_MODEL`. No unavailable Luna
+alias or substitute is configured. Legacy drivers remain without a new compatibility viewer.
+
+A pinned MIT pi-web build reads only server-owned copies through a same-origin allowlist.
+The checked-in patch disables worker control, autonomous jobs/model calls, external publishing,
+update checks, mtime-based activity inference, and service-worker registration. Its child has
+an isolated HOME, no worker auth environment, and a loopback listener. Source/session caps,
+missing or changed files, partial event tails, interrupted runs, and transport outages stay
+visible. Durable per-dispatcher spools and verified offset replay retain data before cleanup;
+source or disk loss before capture remains unrecoverable. Process completion is separate from
+server delivery: explicit raw/event byte targets remain pending until acknowledged, and selected
+SSE streams keep receiving late replay and paged final events after the process ends.
+
+Proof is in [runtime tests](../cairn/tests/test_pi_session_runtime.py),
+[session API tests](../cairn/tests/test_agent_sessions.py),
+[capture tests](../cairn/tests/test_session_capture.py),
+[gateway tests](../cairn/tests/test_pi_viewer_gateway.py), and
+[UI lifecycle/ordering tests](../cairn/tests/test_agent_session_ui.py). The pinned Go viewer was
+built and exercised against explicitly labeled fixtures, including a file append producing
+SSE reload. Browser checks covered live appended events, ended state, phone layout, and the
+same-origin read-only transcript. No paid model execution or live Docker/provider session is
+claimed. [Pi sessions](pi-sessions.md) records build steps, API, bounds, and operational limits.
 
 ## Preserved behavior and removals
 

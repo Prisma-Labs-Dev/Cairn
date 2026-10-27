@@ -63,6 +63,7 @@ Trash](docs/workflow-management.md) preserve results and history.
   describe current behavior in English.
 - [Workflow and artifact guide](docs/workflows.md), [agent creation](docs/agent-creation.md),
   and [runtime controls](docs/runtime-controls.md) cover the fork's user-facing additions.
+- [Pi sessions and live activity](docs/pi-sessions.md) explains scoped history, the pinned read-only viewer, and exact model selection.
 - [Independent verification](docs/verification.md), [token usage](docs/usage.md), and
   [workflow management](docs/workflow-management.md) document completion review, accounting,
   and recoverable deletion.
@@ -153,7 +154,9 @@ System architecture:
 
 Workers can also run directly on the dispatcher host instead of in per-project containers — **local mode**, no Docker required. See [Local mode](#local-mode-no-docker) below.
 
-Supported worker backends: **Claude Code**, **Codex**, and **Pi**. Claude Code and Codex
+Pi is the primary worker in the shipped examples. Cairn captures its live JSON events and
+original session files for the read-only [Pi session viewer](docs/pi-sessions.md).
+Existing **Codex** and **Claude Code** drivers remain available. Claude Code and Codex
 use structured CLI event output; drivers extract the final task result and record reported
 usage separately. Each dispatcher must use its own durable usage outbox path, configurable
 with `CAIRN_USAGE_OUTBOX`; sharing one path is rejected at startup. See [Token usage](docs/usage.md).
@@ -240,7 +243,7 @@ uv run --project cairn cairn serve
 uv run --project cairn cairn dispatch --config dispatch.yaml
 ```
 
-Local mode is selected by `runtime.execution: local` (see `dispatch.local.example.yaml`). On startup the dispatcher checks each configured worker CLI is installed and runnable, and reminds you they must already be logged in. Each standalone project gets a separate working directory under `local.workspace_root` (default: the dispatcher's current directory). Workflow stages share a workflow directory. Optional Codex `model` and `reasoning_effort` fields select a model explicitly; omitting them preserves host defaults. Run the dispatcher directly on the host — not inside Docker — since the agents run with your user's permissions and no sandbox.
+Local mode is selected by `runtime.execution: local` (see `dispatch.local.example.yaml`). On startup the dispatcher checks each configured worker CLI is installed and runnable, and reminds you they must already be logged in. Each standalone project gets a separate working directory under `local.workspace_root` (default: the dispatcher's current directory). Workflow stages share a workflow directory. Optional Pi `provider`, `model`, and `reasoning_effort` fields select an exact configured model and thinking level. Codex also accepts `model` and `reasoning_effort`. Omitting selectors preserves host defaults. Explicit local Pi models must exist exactly in its offline catalog; unavailable models fail without substitution. Run the dispatcher directly on the host — not inside Docker — since the agents run with your user's permissions and no sandbox.
 
 ### Tests
 

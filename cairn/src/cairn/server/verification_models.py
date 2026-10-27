@@ -51,6 +51,7 @@ class CompletionClaim(BaseModel):
     reviewer_session_id: str | None = None
     reviewer_worker: str | None = None
     reviewer_cli_session_id: str | None = None
+    accepted_completion_intent_id: str | None = None
     lease_token: str | None = None
     last_heartbeat_at: str | None = None
     decided_at: str | None = None

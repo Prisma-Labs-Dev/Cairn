@@ -501,3 +501,40 @@ def test_same_process_helpers_share_ownership_across_threads_and_path_aliases(tm
     assert len({box.path for box in boxes}) == 1
     with boxes[0].connect() as conn:
         assert conn.execute('SELECT COUNT(*) FROM usage_outbox_meta').fetchone()[0] == 1
+
+
+def test_eight_cold_helpers_initialize_record_and_report_through_shared_owner(client, tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    directory = tmp_path/'cold-owner'; directory.mkdir()
+    (tmp_path/'cold-alias').symlink_to(directory, target_is_directory=True)
+    start = threading.Barrier(8)
+    reporter = Reporter(client)
+    reports = []
+    reporter.record_usage_reporter = lambda body: reports.append(body) or ApiResult(200, {})
+    attempts = [event() for _ in range(8)]
+    def record(index):
+        start.wait(timeout=5)
+        root = directory if index % 2 == 0 else tmp_path/'cold-alias'
+        box = UsageOutbox('cold-server', root/'usage.db')
+        box.begin(attempts[index])
+        box.enqueue(attempts[index])
+        box.flush(reporter, limit=100)
+        box.publish_status(reporter)
+        return box.path
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        paths = list(executor.map(record, range(8)))
+    assert len(set(paths)) == 1
+    box = UsageOutbox('cold-server', paths[0])
+    box.flush(reporter, limit=100)
+    summary = client.get('/usage/summary').json()
+    assert summary['totals']['attempts'] == 8
+    assert summary['totals']['input_tokens'] == 800
+    assert summary['totals']['cached_input_tokens'] == 640
+    assert summary['totals']['uncached_input_tokens'] == 160
+    assert {item['attempt_id'] for item in reporter.sent} == {str(item.attempt_id) for item in attempts}
+    assert len(reports) == 8 and len({report['reporter_id'] for report in reports}) == 1
+    with box.connect() as conn:
+        assert conn.execute('PRAGMA journal_mode').fetchone()[0] == 'wal'
+        assert conn.execute('SELECT COUNT(*) FROM usage_outbox_meta').fetchone()[0] == 1
+        assert conn.execute('SELECT COUNT(*) FROM pending_usage').fetchone()[0] == 0
