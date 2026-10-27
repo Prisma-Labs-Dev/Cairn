@@ -1,0 +1,26 @@
+# Template only. Run `preflight.py` before using it. Local execution has host permissions.
+server: http://127.0.0.1:8000
+runtime:
+  execution: local
+  worker_healthcheck: disabled
+  max_workers: 2
+  max_running_projects: 2
+  max_project_workers: 2
+  interval: 1
+  healthcheck_timeout: 15
+  prompt_group: default
+tasks:
+  bootstrap: {timeout: 120, conclude_timeout: 60}
+  reason: {timeout: 120, max_intents: 2}
+  explore: {timeout: 180, conclude_timeout: 60}
+local:
+  workspace_root: REPLACE_WITH_ISOLATED_RUNTIME_ROOT
+  completed_action: keep
+workers:
+  - name: luna
+    type: codex
+    model: gpt-6-luna
+    reasoning_effort: low
+    task_types: [bootstrap, reason, explore]
+    max_running: 2
+    priority: 0

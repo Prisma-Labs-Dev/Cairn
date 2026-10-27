@@ -82,6 +82,7 @@ def _export_yaml(conn, project_id: str) -> str:
             "required_artifacts": definition.get("artifacts", []),
             "collected_artifacts": [artifact.model_dump() for artifact in list_artifacts(conn, project_id)],
             "history_index_url": history_index_url(project_id),
+            "expansion": definition.get("expansion"),
         }
 
     if hints:

@@ -320,12 +320,12 @@ def test_codex_local_driver_omits_provider_injection() -> None:
     worker = _bare_worker("codex")
     argv = CodexDriver(local=True).build_execute(worker, "PROMPT", None).argv
 
-    assert argv == ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--", "PROMPT"]
+    assert argv == ["codex", "exec", "--json", "--dangerously-bypass-approvals-and-sandbox", "--", "PROMPT"]
     assert not any("model_providers" in part for part in argv)
     assert "--model" not in argv
 
     conclude = CodexDriver(local=True).build_conclude(worker, "PROMPT", "sess-1")
-    assert conclude[:4] == ["codex", "exec", "resume", "sess-1"]
+    assert conclude[:5] == ["codex", "exec", "resume", "--json", "sess-1"]
     assert conclude[-2:] == ["--", "PROMPT"]
     assert not any("model_providers" in part for part in conclude)
 

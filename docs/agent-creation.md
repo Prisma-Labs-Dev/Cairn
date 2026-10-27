@@ -52,6 +52,39 @@ Cairn derives the instruction to produce those files. Omitted `depends_on` still
 prerequisites. List dependencies to create a chain or a join; independent stages may run in
 parallel. File order alone does not create dependencies.
 
+## Let a stage discover parallel goals
+
+Opt in on a workflow stage when its work should determine what comes next:
+
+```yaml
+stages:
+  - id: discover
+    goal: Identify the items in the supplied fixture that need investigation.
+    expansion: {max_goals: 16}
+  - goal: Combine the item investigations into the requested result.
+    depends_on: [discover]
+```
+
+On actual completion, the worker adds an explicit `goals` array to its `complete` object:
+
+```json
+{"goals": [{"goal": "Investigate item alpha."}, {"goal": "Investigate item beta."}]}
+```
+
+The completion API accepts that array alongside `from`, `description`, and `worker`.
+Use `goals: []` when there are no follow-up goals; omission is invalid for an expandable
+stage. Each proposed item requires `goal` and may specify `id`, `title`, `kind`,
+`bootstrap_enabled`, or `artifacts`. It cannot supply dependencies or further expansion.
+The server starts the new goals in parallel after the parent and makes its unstarted
+direct successors wait for every generated child.
+
+`max_goals` defaults to 16, accepts 1 through 64, and the workflow stays bounded to 128
+stages. Invalid or conflicting proposals roll back the completion. Dispatcher correction
+attempts are bounded to three before the workflow pauses for attention. See
+[Staged workflows](workflows.md#discover-goals-while-working) for the full completion
+example, idempotent retries, join semantics, and recovery behavior. Prior context remains
+optional for generated stages, just as for stages defined at creation.
+
 ## Files, pipelines, and schemas
 
 ```sh

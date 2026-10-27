@@ -77,11 +77,17 @@ class InProcessClient:
             {"worker": worker, "description": description},
         )
 
-    def complete(self, project_id: str, from_ids: list[str], description: str, worker: str) -> ApiResult:
+    def complete(self, project_id: str, from_ids: list[str], description: str, worker: str, goals=None) -> ApiResult:
+        payload = {"from": from_ids, "description": description, "worker": worker}
+        if goals is not None:
+            payload["goals"] = goals
         return self._post(
             f"/projects/{project_id}/complete",
-            {"from": from_ids, "description": description, "worker": worker},
+            payload,
         )
+
+    def request_expansion_recovery(self, project_id: str, description: str, worker: str) -> ApiResult:
+        return self._post(f"/projects/{project_id}/expansion-recovery", {"description": description, "worker": worker})
 
     def create_intent(self, project_id: str, from_ids: list[str], description: str, creator: str) -> ApiResult:
         return self._post(

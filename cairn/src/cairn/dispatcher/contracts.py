@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from cairn.dispatcher.output_parser import extract_json_object
+from cairn.server.models import GeneratedGoalDefinition
 
 
 def parse_json_output(stdout: str) -> dict[str, Any]:
@@ -59,8 +60,24 @@ def _looks_like_explore_data(payload: dict[str, Any]) -> bool:
     return isinstance(payload, dict) and set(payload) == {"description"}
 
 
+def _completion_goals(complete: dict[str, Any], expansion_max_goals: int | None) -> list[dict] | None:
+    if "goals" not in complete:
+        if expansion_max_goals is not None:
+            raise ValueError("Expandable completion must include goals: [] or a list of generated goals")
+        return None
+    goals = complete["goals"]
+    if not isinstance(goals, list):
+        raise ValueError("complete.goals must be an array")
+    if expansion_max_goals is None and goals:
+        raise ValueError("This stage does not permit generated goals")
+    if expansion_max_goals is not None and len(goals) > expansion_max_goals:
+        raise ValueError(f"complete.goals exceeds the stage limit of {expansion_max_goals}")
+    return [GeneratedGoalDefinition.model_validate(goal).model_dump(mode="json", exclude_none=True) for goal in goals]
+
+
 def validate_reason_payload(
     payload: dict[str, Any], open_intents_empty: bool, max_intents: int,
+    expansion_max_goals: int | None = None,
 ) -> tuple[str, dict[str, Any] | list[dict[str, Any]] | None]:
     accepted, data = _unwrap_wrapped_payload(payload)
     if accepted is False:
@@ -83,7 +100,8 @@ def validate_reason_payload(
             raise ValueError("complete and intents cannot coexist")
         if not isinstance(complete, dict) or "from" not in complete or "description" not in complete:
             raise ValueError("invalid complete payload")
-        return "complete", complete
+        goals = _completion_goals(complete, expansion_max_goals)
+        return "complete", {**complete, **({"goals": goals} if goals is not None else {})}
     if intents is not None:
         if not isinstance(intents, list):
             raise ValueError("intents must be an array")
@@ -101,7 +119,7 @@ def validate_reason_payload(
     return "noop", None
 
 
-def validate_bootstrap_execute_payload(payload: dict[str, Any]) -> tuple[str, dict[str, str] | None]:
+def validate_bootstrap_execute_payload(payload: dict[str, Any], expansion_max_goals: int | None = None) -> tuple[str, dict[str, Any] | None]:
     accepted, data = _unwrap_wrapped_payload(payload)
     if accepted is False:
         return "rejected", None
@@ -129,6 +147,9 @@ def validate_bootstrap_execute_payload(payload: dict[str, Any]) -> tuple[str, di
     if not isinstance(complete_description, str) or not complete_description.strip():
         raise ValueError("complete.description is required")
     result["complete_description"] = complete_description.strip()
+    goals = _completion_goals(complete, expansion_max_goals)
+    if goals is not None:
+        result["goals"] = goals
     return "complete", result
 
 

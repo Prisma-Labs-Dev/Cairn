@@ -4,6 +4,7 @@ import logging
 import shutil
 import subprocess
 import time
+import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,13 +17,16 @@ from cairn.dispatcher.protocol.client import CairnClient
 from cairn.dispatcher.runtime.cancellation import TaskCancellation
 from cairn.dispatcher.runtime.containers import ContainerManager
 from cairn.dispatcher.runtime.local_backend import LocalBackend
+from cairn.dispatcher.usage_reporting import flush_usage, ensure_usage_owner
 from cairn.dispatcher.runtime.startup_healthcheck import format_failure_summary, run_startup_healthchecks
 from cairn.dispatcher.scheduler.worker_select import choose_worker
 from cairn.dispatcher.workers.registry import get_driver
 from cairn.dispatcher.tasks.bootstrap import run_bootstrap_task
 from cairn.dispatcher.tasks.explore import run_explore_task
 from cairn.dispatcher.tasks.reason import run_reason_task
+from cairn.dispatcher.tasks.review import run_review_task
 from cairn.server.models import Intent, ProjectDetail, ProjectSummary
+from cairn.server.runtime_models import DispatcherReport, RUNTIME_FIELDS, RuntimeCounts, RuntimeLimits, RuntimeSettingsState, RuntimeWorker
 
 LOG = logging.getLogger(__name__)
 UNHEALTHY_RETRY_AFTER_SECONDS = 5
@@ -51,6 +55,12 @@ class DispatcherLoop:
             assert self.config.container is not None
             self.container_manager = ContainerManager(self.config.container)
         self.executor = ThreadPoolExecutor(max_workers=self.config.runtime.max_workers)
+        self._executor_capacity = self.config.runtime.max_workers
+        self._retired_executors: list[ThreadPoolExecutor] = []
+        self._configured_limits = RuntimeLimits(**{field: getattr(self.config.runtime, field) for field in RUNTIME_FIELDS})
+        self._effective_limits = self._configured_limits.model_copy()
+        self._applied_settings_revision = 0
+        self.dispatcher_id = f"dispatcher_{uuid.uuid4().hex}"
         self.cleanup_executor = ThreadPoolExecutor(max_workers=max(1, min(8, self.config.runtime.max_workers)))
         self.futures: dict[Future[str], RunningTask] = {}
         self.cleanup_futures: dict[Future[bool], tuple[str, str | None, str | None]] = {}
@@ -74,12 +84,15 @@ class DispatcherLoop:
                 sorted({task.project_id for task in self.futures.values()}),
             )
         self.executor.shutdown(wait=True)
+        for executor in getattr(self, "_retired_executors", []):
+            executor.shutdown(wait=True)
         self.cleanup_executor.shutdown(wait=True)
         self.container_manager.close()
         self.client.close()
 
     def run(self, once: bool = False) -> None:
         try:
+            ensure_usage_owner(self.client)
             self.run_startup_healthchecks()
             while True:
                 try:
@@ -88,12 +101,15 @@ class DispatcherLoop:
                         self._settings_checked = True
                     self._reap_futures()
                     self._reap_cleanup_futures()
+                    flush_usage(self.client)
+                    self._apply_runtime_settings(self.client.get_runtime_settings())
                     summaries = self.client.list_projects()
                     self._initialize_reason_checkpoints(summaries)
                     self._refresh_runtime_projects(summaries)
                     self._cancel_inactive_tasks(summaries)
                     self._queue_container_cleanups(summaries)
                     self._dispatch_available(summaries)
+                    self._publish_runtime()
                 except requests.RequestException as exc:
                     if once:
                         raise
@@ -189,8 +205,79 @@ class DispatcherLoop:
             return path, False
         return path, result.returncode == 0
 
+    def _runtime_limits(self) -> RuntimeLimits:
+        limits = getattr(self, "_effective_limits", None)
+        if limits is not None:
+            return limits
+        return RuntimeLimits(**{field: getattr(self.config.runtime, field) for field in RUNTIME_FIELDS})
+
+    def _apply_runtime_settings(self, state: RuntimeSettingsState) -> None:
+        configured = getattr(self, "_configured_limits", None)
+        if configured is None:
+            configured = RuntimeLimits(**{field: getattr(self.config.runtime, field) for field in RUNTIME_FIELDS})
+            self._configured_limits = configured
+        limits = RuntimeLimits(**{
+            field: getattr(state.settings, field) or getattr(configured, field)
+            for field in RUNTIME_FIELDS
+        })
+        capacity = getattr(self, "_executor_capacity", self.config.runtime.max_workers)
+        if limits.max_workers > capacity:
+            # A new pool can run additional work immediately while existing jobs finish
+            # in the old pool. The shared futures map still enforces the overall cap.
+            previous = self.executor
+            self.executor = ThreadPoolExecutor(max_workers=limits.max_workers)
+            previous.shutdown(wait=False)
+            if not hasattr(self, "_retired_executors"):
+                self._retired_executors = []
+            self._retired_executors.append(previous)
+            self._executor_capacity = limits.max_workers
+        self._effective_limits = limits
+        self._applied_settings_revision = state.settings_revision
+
+    def _runtime_report(self) -> DispatcherReport:
+        counts = self._worker_counts()
+        now = time.time()
+        configured = getattr(self, "_configured_limits", None) or RuntimeLimits(**{
+            field: getattr(self.config.runtime, field) for field in RUNTIME_FIELDS
+        })
+        return DispatcherReport(
+            configured=configured, effective=self._runtime_limits(),
+            applied_settings_revision=getattr(self, "_applied_settings_revision", 0),
+            stale_after_seconds=max(30, self.config.runtime.interval * 3),
+            counts=RuntimeCounts(
+                running_tasks=len(self.futures),
+                running_projects=len({task.project_id for task in self.futures.values()}),
+                admitted_projects=len(self.runtime_project_ids),
+            ),
+            workers=[RuntimeWorker(
+                name=worker.name, type=worker.type, task_types=worker.task_types,
+                max_running=worker.max_running, running=counts.get(worker.name, 0),
+                cooldown=self.worker_unhealthy_until.get(worker.name, 0) > now,
+            ) for worker in self.config.workers],
+        )
+
+    def _publish_runtime(self) -> None:
+        response = self.client.publish_runtime(self.dispatcher_id, self._runtime_report())
+        if not response.ok:
+            LOG.warning("could not publish dispatcher status dispatcher=%s status=%s", self.dispatcher_id, response.status_code)
+
+    def _reconcile_runtime_projects(self, summaries: list[ProjectSummary]) -> None:
+        """Honor a lowered admission cap without interrupting any existing task."""
+        busy = {task.project_id for task in self.futures.values()}
+        active = {summary.id for summary in summaries if summary.status == "active"}
+        idle_admitted = (self.runtime_project_ids & active) - busy
+        remaining = max(0, self._runtime_limits().max_running_projects - len(busy))
+        ordered = self._ordered_projects([summary for summary in summaries if summary.id in idle_admitted])
+        self.runtime_project_ids = busy | {summary.id for summary in ordered[:remaining]}
+
     def _dispatch_available(self, summaries: list[ProjectSummary]) -> None:
-        if len(self.futures) >= self.config.runtime.max_workers:
+        self._reconcile_runtime_projects(summaries)
+        limits = self._runtime_limits()
+        if len({task.project_id for task in self.futures.values()}) > limits.max_running_projects:
+            self._log_changed("dispatch/project-drain", logging.INFO,
+                              "waiting for existing project tasks to drain after runtime limit decrease")
+            return
+        if len(self.futures) >= limits.max_workers:
             self._log_changed(
                 "dispatch/global",
                 logging.INFO,
@@ -211,16 +298,16 @@ class DispatcherLoop:
         )
 
         dispatched = True
-        while dispatched and len(self.futures) < self.config.runtime.max_workers:
+        while dispatched and len(self.futures) < limits.max_workers:
             dispatched = False
             for summary in running_projects:
                 if self._try_dispatch_project(summary):
                     dispatched = True
-                    if len(self.futures) >= self.config.runtime.max_workers:
+                    if len(self.futures) >= limits.max_workers:
                         return
             if dispatched:
                 continue
-            if self._running_project_count(active) >= self.config.runtime.max_running_projects:
+            if self._running_project_count(active) >= limits.max_running_projects:
                 self._log_changed(
                     "dispatch/idle-limit",
                     logging.INFO,
@@ -229,7 +316,7 @@ class DispatcherLoop:
                 )
                 return
             for summary in idle_projects:
-                if self._running_project_count(active) >= self.config.runtime.max_running_projects:
+                if self._running_project_count(active) >= limits.max_running_projects:
                     self._log_changed(
                         "dispatch/idle-limit",
                         logging.INFO,
@@ -254,6 +341,12 @@ class DispatcherLoop:
 
     def _try_dispatch_project(self, summary: ProjectSummary) -> bool:
         skip_scope = f"project:{summary.id}:skip"
+        limits = self._runtime_limits()
+        busy = {task.project_id for task in self.futures.values()}
+        if len(busy) > limits.max_running_projects:
+            return False
+        if summary.id not in self.runtime_project_ids and len(self.runtime_project_ids | busy) >= limits.max_running_projects:
+            return False
         container_name = self.container_manager.container_name(summary.runtime_id)
         if container_name in self._cleanup_pending:
             self._log_changed(
@@ -264,7 +357,7 @@ class DispatcherLoop:
                 container_name,
             )
             return False
-        if self._project_running_task_count(summary.id) >= self.config.runtime.max_project_workers:
+        if self._project_running_task_count(summary.id) >= limits.max_project_workers:
             self._log_changed(
                 f"{skip_scope}:max_project_workers",
                 logging.INFO,
@@ -284,6 +377,8 @@ class DispatcherLoop:
                 project.project.status,
             )
             return False
+        if project.project.pending_review_id:
+            return self._dispatch_review(project)
         if self._is_initial_project(project):
             if project.project.reason is not None:
                 return False
@@ -337,6 +432,20 @@ class DispatcherLoop:
             len(project.intents),
         )
         return False
+
+    def _dispatch_review(self, project: ProjectDetail) -> bool:
+        # Review waits for the producer process to finish, then uses the same
+        # capacity pool. One configured worker can produce and review in turn.
+        if self._project_running_task_count(project.project.id):
+            return False
+        worker = self._select_worker(project.project.id, "reason").worker
+        if worker is None:
+            return False
+        cancellation = TaskCancellation()
+        future = self.executor.submit(run_review_task, self.config, self.client, self.container_manager, project, worker, cancellation)
+        self.futures[future] = RunningTask(project.project.id, "review", worker.name, cancellation)
+        self.runtime_project_ids.add(project.project.id)
+        return True
 
     def _dispatch_initial_project(self, project: ProjectDetail) -> bool:
         intent = self._get_bootstrap_intent(project)
@@ -640,7 +749,8 @@ class DispatcherLoop:
 
     def _running_project_count(self, summaries: list[ProjectSummary]) -> int:
         active_ids = {summary.id for summary in summaries if summary.status == "active"}
-        return len(self.runtime_project_ids & active_ids)
+        busy = {task.project_id for task in getattr(self, "futures", {}).values()}
+        return len((self.runtime_project_ids & active_ids) | busy)
 
     def _project_open_intent_count(self, project: ProjectDetail) -> int:
         return sum(1 for intent in project.intents if intent.to is None)

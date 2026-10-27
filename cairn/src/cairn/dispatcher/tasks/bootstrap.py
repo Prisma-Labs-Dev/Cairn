@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 
 from cairn.dispatcher.config import DispatchConfig, WorkerConfig
+from cairn.dispatcher.goal_expansion import expansion_prompt, recover_expansion
 from cairn.dispatcher.history import add_optional_history
 from cairn.dispatcher.artifacts import capture_required_artifacts
 from cairn.dispatcher.contracts import (
@@ -96,6 +98,7 @@ def run_bootstrap_task(
             _bootstrap_prompt_replacements(project),
         )
         prompt = add_optional_history(prompt, config, container_manager, container_name, project)
+        prompt = expansion_prompt(prompt, project)
 
         session = driver.prepare_session()
         execute = driver.build_execute(worker, prompt, session)
@@ -107,6 +110,7 @@ def run_bootstrap_task(
             worker,
             execute.argv,
             phase="bootstrap",
+            usage_client=client, usage_project_id=project.project.id,
             timeout_seconds=config.tasks.bootstrap.timeout,
             lease=lease,
             cancellation=cancellation,
@@ -140,7 +144,9 @@ def run_bootstrap_task(
             try:
                 model_output = driver.extract_response_text(first.stdout, first.stderr)
                 payload = parse_json_output(model_output)
-                kind, data = validate_bootstrap_execute_payload(payload)
+                kind, data = validate_bootstrap_execute_payload(
+                    payload, project.expansion.max_goals if project.expansion else None,
+                )
             except Exception as exc:
                 LOG.warning(
                     "bootstrap parse failed project=%s intent=%s worker=%s error=%s execute_ms=%s total_ms=%s stdout_preview=%s stderr_preview=%s",
@@ -153,6 +159,15 @@ def run_bootstrap_task(
                     preview(first.stdout),
                     preview(first.stderr),
                 )
+                if project.expansion:
+                    message = "The completion response could not be accepted because its goal expansion output was invalid: " + str(exc)[:1_000]
+                    closed = write_conclude_result(
+                        client, project.project.id, intent.id, worker.name, message,
+                        source="expansion_validation", phase_ms=execute_ms,
+                    )
+                    if closed != "success":
+                        return closed
+                    return recover_expansion(client, client.get_project(project.project.id), worker.name, exc)
                 return _try_conclude_fallback(
                     config,
                     client,
@@ -186,6 +201,9 @@ def run_bootstrap_task(
                 worker.name,
                 data["fact_description"],
                 data["complete_description"],
+                goals=data.get("goals"),
+                producer_agent_id=f"producer_{uuid.uuid4().hex}",
+                producer_session_id=session or f"producer_session_{uuid.uuid4().hex}",
                 source="bootstrap",
                 phase_ms=execute_ms,
                 total_ms=int((time.perf_counter() - task_started) * 1000),
@@ -304,6 +322,7 @@ def _try_conclude_fallback(
         worker,
         conclude_argv,
         phase="bootstrap_conclude",
+        usage_client=client, usage_project_id=project.project.id,
         timeout_seconds=config.tasks.bootstrap.conclude_timeout,
         lease=lease,
         cancellation=cancellation,
@@ -416,6 +435,9 @@ def _write_bootstrap_complete_result(
     source: str,
     phase_ms: int,
     total_ms: int | None = None,
+    goals: list[dict] | None = None,
+    producer_agent_id: str | None = None,
+    producer_session_id: str | None = None,
 ) -> str:
     project_id = project.project.id
     conclude = write_conclude_result_with_fact_id(
@@ -444,7 +466,12 @@ def _write_bootstrap_complete_result(
         client, container_manager, client.get_project(project_id), worker_name,
     ):
         return "success"
-    response = client.complete(project_id, [conclude.fact_id], complete_description, worker_name)
+    kwargs = {"goals": goals} if goals is not None else {}
+    if project.project.verification_enabled:
+        kwargs.update(producer_agent_id=producer_agent_id, producer_session_id=producer_session_id)
+    response = client.complete(project_id, [conclude.fact_id], complete_description, worker_name, **kwargs)
+    if project.expansion and response.status_code in (409, 422):
+        return recover_expansion(client, project, worker_name, response.text)
     if response.status_code in (403, 409):
         LOG.info(
             "bootstrap complete deferred project=%s intent=%s worker=%s source=%s status=%s fact_id=%s",

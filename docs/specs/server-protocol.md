@@ -1,866 +1,538 @@
-# Cairn 协作探索协议
+# Cairn collaborative exploration protocol
 
----
+This document describes the current project graph protocol. The [dispatcher specification](dispatcher-design.md)
+describes its bundled consumer. The [core change record](../core-changes.md) compares this fork
+with upstream `8e7e0ea`. Workflows, historical context, and artifact APIs are documented in
+[Staged workflows](../workflows.md), outside this core protocol description. The running
+server's `/openapi.json` provides the exact request and response schemas.
 
-## 本质
+## Model and design
 
-衍迹（Cairn）将目标导向的探索过程建模为一张有向无环图：从已知事实出发，不断探索产出新事实，直到某些事实共同满足终点。名称取自登山者用石头垒起的路标——每个 Fact 是一块石头，Agent 沿着前人的 cairn 继续探索，同时垒新的 cairn 给后来者。
+Cairn models goal-directed exploration as a directed acyclic graph. Consumers start from
+known facts, explore directions, and append new facts until some findings together satisfy
+the goal. Its name comes from the stones hikers stack as route markers. Each fact records
+progress that another consumer can build on.
 
-这套 API 管理这张图的生长过程。多个消费者（人或 Agent）并发读取完整图，各自声明探索意图，各自产出新事实，最终由某个消费者判断终点已达成。对于一些很简单的问题，消费者也可以在项目最初阶段直接围绕起点和终点做一次快速推进，而不必先拆成多轮显式规划；这种“起步即做”的过程仍通过 Intent/Fact 正常落图。
+The API maintains graph consistency. It does not decide whether a hypothesis is useful or
+whether evidence proves the goal. Consumers make those decisions. A consumer can also attempt
+a simple problem directly at the start; the attempt still records an intent and its resulting
+fact before declaring completion.
 
-图仍然是知识与因果关系的唯一表达；但协议也允许少量**项目级协调状态**，用于消费者之间做互斥和可见性协作。这类状态不是事实，不属于图，不参与因果推理。当前唯一内置的项目级协调状态是 `Project.reason`，用于标识“某个消费者正在对整个项目做一次 `reason` 判断”。
+The design follows the blackboard architecture used by Hearsay-II. Independent consumers
+read shared state and contribute findings. Facts are the board's contents, intents record
+exploration, and hints are annotations. Intent source and destination links retain causal
+relationships as well as results. This form of indirect coordination is also called
+stigmergy. Each consumer's read, evaluate, propose, execute, and record cycle follows an
+Observe-Orient-Decide-Act loop. A goal specifies the result to achieve; hints can express
+human priorities while consumers choose their next actions.
 
-系统不做任何推理和决策，只负责图的一致性维护。
+The graph expresses knowledge and causality. `Project.reason` is separate coordination
+state that makes a project-wide reasoning task mutually exclusive and visible. It is not a
+fact or an edge and does not participate in graph reasoning. The bundled dispatcher centrally
+schedules worker processes; the protocol's shared-board design does not imply that those
+processes independently claim work.
 
-### 设计渊源
+### Recording changed conditions
 
-这套协议是**黑板架构**（Blackboard Architecture）的现代化重构。1970 年代 CMU 的 Hearsay-II 系统提出了同样的范式：多个专家围绕一块共享黑板工作，各自读取当前状态，各自贡献新知识，没有中央调度。Fact 对应黑板上的内容，Intent 对应专家的行动记录，Hint 对应旁注。区别在于：经典黑板只有"当前状态"，本协议通过 Intent 保留了完整的因果链，使得图同时是知识库和推理路径的审计日志。
+Ordinary facts are appended, not edited or marked obsolete. A changed condition is another
+fact. For example:
 
-协调机制上，这套设计等价于蚁群的**信息素机制**（stigmergy）——个体之间不直接通信，而是通过改变共享环境间接协调。Agent 读图、写 Fact，就是在环境上留下信息素，其他 Agent 据此决策。
+- `f003`: "Obtained a root shell on host-A."
+- `f007`: "Discovered subnet 10.0.2.0/24 through host-A."
+- `f025`: "The host-A shell disconnected."
 
-每个消费者的工作循环（读图→判断→声明意图→执行→产出事实）构成一个独立的 **OODA 循环**（Observe-Orient-Decide-Act），多个循环通过共享图间接同步。这与军事指挥中的**任务式指挥**（Mission Command）同构——上级只下达目标（goal），各单位根据态势自主决策，Hint 扮演"指挥官意图"的角色。核心优势：决策速度不受中心调度瓶颈限制。
+Consumers can use the later observation to plan a new route without deleting the earlier
+finding. Fact descriptions should summarize observations and reference larger evidence
+files, rather than paste entire logs. For example: "Ports 22, 80, 443, and 8080 are open;
+80 and 8080 serve HTTP. Full scan: /tmp/scans/nmap_192.168.1.10.xml."
 
-### 状态变化的表达
+Two explicit management operations are exceptions to immutable graph history. An active
+project's starting `origin` can be refined through the metadata endpoint. Reopening a
+completed standalone project removes its completion edge and appends corrective feedback.
+Both operations are described below.
 
-Fact 只增不改，状态变化通过追加新 Fact 表达。例如在多层网络渗透中：
-
-- `f003`: "获得 host-A 的 root shell"
-- `f007`: "通过 host-A 跳板发现内网 10.0.2.0/24"
-- `f025`: "host-A shell 已断开"
-
-"shell 断了"本身就是一个新的客观事实。Agent 读图时看到 f003 和 f025，自行判断当前可达性，从 f025 出发声明新的探索意图（重建 shell、换跳板）。不需要修改历史 Fact，不需要标记失效——事实的时序本身就携带了状态变化的信息。
-
----
-
-## 核心概念
-
-### Project
-
-一个有明确起点和终点的问题实例，包含完整的图数据。
-
-三种状态：
-
-- `active`：进行中，接受探索写操作
-- `stopped`：硬停止，不接受探索写操作，可恢复为 `active`
-- `completed`：当前已完成，不接受探索写操作；若外部确认之前的完成判断有误，可显式调用 `reopen` 撤销完成态并继续
-
-### Fact
-
-图中的节点，代表一个已确认的客观事实。只有描述文本，没有状态标记。只增不改，永久保留。
-
-描述文本应是探索结论的提炼，而非原始数据。当原始输出较大时（如扫描结果），描述应包含关键洞见和原始数据的文件引用，例如："nmap 全端口扫描发现 22/80/443/8080 开放，80 和 8080 均为 HTTP 服务，详细结果见 /tmp/scans/nmap_192.168.1.10.xml"。这保证图保持轻量，同时原始数据仍可追溯。
-
-每个 Project 有两个特殊 Fact，在 Project 创建时写入：
-
-- `origin`：起点
-- `goal`：终点
-
-普通 Fact 由系统生成 id，如 `f001`。
-
-### Intent
-
-图中的边，代表从一个或多个 Fact 出发的探索过程。有三种状态：
-
-- **进行中**：Intent 已被某个消费者认领，`worker` 不为 null
-- **未认领**：Intent 尚无结论，且当前 `worker` 为 null，等待消费者接手
-- **已结论**：`to` 不为 null，探索已完成，产出了结论 Fact
-
-未结论的 Intent（`to=null`）表示这个探索方向已声明但尚未有结论。声明时可只写下方向而不认领，也可同时认领。已结论的 Intent 不可修改。
-
-协议本身不区分 Intent 的“类型”，所有 Intent 在服务端都一视同仁；但消费者可以约定某些**保留语义**。例如可约定一条：
-
-- `from = ["origin"]`
-- `description = "bootstrap"`
-
-的 open Intent 表示“项目最初阶段的一次直接推进尝试”。这类保留 intent 仍然走同样的 heartbeat / release / conclude 生命周期，不需要额外接口；区别只在于消费者会把它解释为“先自己分析并执行，先把关键证明性事实落图；若该事实已足以满足 goal，再继续声明 complete”，而不是普通的细分探索方向。
-
-这个约定适合那些可能很快完成、或至少很快得到首个关键突破的问题。这样项目在前端和审计记录中仍然是可见、可理解的：读者能明确看到系统先做过一次 `bootstrap` 尝试，产出了什么关键事实；像 flag、shell、权限证明这类对后续系统有价值的结果，不会因为直接完成项目而绕开事实图。
-
-**超边语义：** `from` 允许多个 Fact id。`from` 包含多个 id 时，这条 Intent 在图中等价于一条超边——多个源节点共同指向同一个目标节点，共享同一个 description、creator 和 worker：
-
-```
-f002 ──┐
-       ├──(intent)──→ f006
-f004 ──┘
-```
-
-这完整保留了"多个已知事实共同支撑一次探索"的因果关系，而不是被迫选一个主 Fact 丢失其余上下文。
-
-### Hint
-
-图外输入，策略建议或补充说明。不属于事实图，不影响因果关系，供消费者读图时参考。
-
-Hint 代表外部补充的高纬输入，不属于探索执行本身。因此项目处于 `stopped` 或 `completed` 时，仍允许继续补充 Hint。`stopped` 项目恢复为 `active` 后，后续消费者会在下一次读图时看到这些新增提示；`completed` 项目上的新 Hint 会被保留，若之后需要继续处理该项目，仍应通过 `reopen` 回到 `active`。
-
-除了人工补充的策略提示，Hint 也适合用于消费者之间传递**态势评估**。随着图增长，大量已排除的方向会稀释有效信息。消费者在完成一轮探索后，可将对当前局势的判断写为 Hint（如"SSH 和 SQL 注入方向均已排除，攻击面集中在文件上传功能"），帮助后续消费者快速定位重点，降低每轮读图的认知成本。
-
----
-
-## 数据结构
+## Concepts and data
 
 ### Project
 
-```
-id
-title           # 项目名称
-status          # "active" | "stopped" | "completed"
-bootstrap_enabled  # 是否允许消费者在初始态运行 bootstrap，默认 true
-created_at
-reason          # 当前项目级 reason lease，null 表示当前无人执行 reason
-```
+A project contains one goal and its graph.
 
-### Project.reason
+| Field | Meaning |
+| --- | --- |
+| `id` | Server-generated project ID |
+| `title` | Display title |
+| `status` | `active`, `stopped`, or `completed` |
+| `bootstrap_enabled` | Whether consumers may start with a direct bootstrap attempt, default `true` |
+| `verification_enabled` | Require independent acceptance of completion, default `false` |
+| `pending_review_id` | Pending completion claim ID, or `null` |
+| `created_at` | Creation time |
+| `reason` | Current project-level reason lease, or `null` |
+| `workflow_id`, `workflow_stage_id` | Owning workflow and stage IDs, or `null` for standalone projects |
 
-```
-worker             # 当前执行 reason 的消费者
-trigger            # 本次 reason 的触发原因，由消费者定义
-started_at         # 本次 reason 开始时间
-last_heartbeat_at  # 最近一次 reason 心跳时间
-```
+`active` projects accept exploration writes. `stopped` projects reject them and can resume.
+An active project with `pending_review_id` also blocks producer exploration writes with `409`
+until independent review resolves its claim.
+`completed` projects reject them; standalone projects can be explicitly reopened after
+external feedback disproves completion. Workflow-owned stage lifecycle is controlled through
+the workflow rather than standalone stop, deletion, or reopen operations.
+
+A reason lease contains `worker`, consumer-defined `trigger`, `started_at`, and
+`last_heartbeat_at`. Only one live reason lease exists per project.
 
 ### Fact
 
+```text
+id             "origin", "goal", or a generated ID such as "f001"
+description    Factual observation or special origin/goal text
 ```
-id              # "origin" | "goal" | 系统生成（如 f001）
-description     # 客观事实描述
-```
+
+Every project starts with `origin` and `goal` facts. A goal-only creation request gives
+`origin` an empty description. Ordinary facts have no validity flag and are created by
+concluding intents or recording external feedback.
 
 ### Intent
 
-```
+```text
 id
-from            # 出发 Fact 的 id 数组，至少一个
-to              # 结论 Fact 的 id，null 表示尚无结论
-description     # 意图描述
-creator         # 声明意图的消费者，创建时写入，不可变
-worker          # 执行者标识，语义随状态变化（见下方说明）
-last_heartbeat_at  # 最后一次心跳时间，仅尚无结论时有意义，永久保留，不清空
+from                 One or more source fact IDs
+to                   Destination fact ID, or null while unfinished
+description          Exploration direction or conclusion edge description
+creator              Consumer that declared the intent, immutable after creation
+worker               Current holder while open; producing consumer after conclusion
+last_heartbeat_at    Last heartbeat, retained even when an open claim is released
 created_at
-concluded_at    # 结论时间，null 表示尚无结论
+concluded_at         Conclusion time, or null
 ```
 
-`creator` 在创建时写入，标识谁洞察局势提出了这个探索方向，不可变。`worker` 可为空；若创建时同时认领，则 `worker` 必须等于 `creator`，并写入首个 `last_heartbeat_at`。
+An unfinished intent has `to=null`. It may be unclaimed with `worker=null` or held by a
+consumer. A concluded intent has a destination and is immutable. Its `worker` permanently
+identifies the producer of the conclusion. An expired open claim clears `worker` but retains
+`last_heartbeat_at`. The protocol does not store every previous holder of an unfinished intent.
 
-请求体里的文本字段（如 `content`、`description`、`creator`、`worker`、`trigger`）以及 `from` 中的 Fact id，服务端都会先做首尾空白裁剪；裁剪后若为空，则返回 `422`。本分支的创建接口例外：`title` 和 `origin` 可省略、为 `null` 或空白；标题由目标生成，未提供的起点保持为空。详见 [Agent creation](../agent-creation.md)。
+`creator` identifies the consumer that proposed the direction. Creation can claim the intent
+at the same time, but then `worker` must equal `creator` and the first heartbeat is recorded.
+`from` cannot contain `goal`.
 
-如果消费者采用 `bootstrap` 约定，常见做法是使用固定 `creator`，例如 `dispatcher.bootstrap`，以便在图上与普通探索 intent 清晰区分；这只是消费者约定，不是服务端约束。
+Multiple source facts form a hyperedge. They jointly support the same exploration, description,
+creator, and worker:
 
-**worker 字段语义：**
+```text
+f002 ---+
+        +--- intent ---> f006
+f004 ---+
+```
 
-| Intent 状态           | worker 含义                      |
-| --------------------- | -------------------------------- |
-| 尚无结论，worker=null | 当前无人处理，等待认领           |
-| 尚无结论，worker 有值 | 有消费者正在处理                 |
-| 尚无结论，worker 超时 | worker 清空为 null，等待重新认领 |
-| 已结论                | 产出结论的消费者，永久保留       |
-
-超时清空 worker 只针对尚无结论的 Intent。已结论的 Intent 不参与超时逻辑，worker 永久保留为产出结论的消费者标识。
+The server does not assign special task types to intents. The bundled dispatcher reserves
+`from=["origin"]`, `description="bootstrap"`, and `creator="dispatcher.bootstrap"` for
+its first direct attempt. The ordinary heartbeat, release, and conclude APIs still apply.
+This makes the first attempt and its evidence visible in the same graph as later exploration.
 
 ### Hint
 
-```
+```text
 id
 content
-creator         # 提示的作者
+creator       Author of the hint
 created_at
 ```
 
-### Settings
+Hints are external guidance, not factual graph nodes or causal edges. They can be added in
+all project states, except for workflow-owned projects in recoverable Trash. A hint on a
+stopped project becomes available when it resumes; a hint on
+a completed project remains stored but does not reopen it. Consumers may also use hints for
+concise assessments such as "The first two hypotheses were ruled out; focus on file upload."
 
+### Validation and lease settings
+
+The server trims request text such as descriptions, creators, workers, triggers, and source
+fact IDs. Empty values after trimming produce `422`. Creation metadata has a deliberate
+exception: omitted, null, or blank `title` and `origin` are accepted. The title is derived
+from the goal's first nonempty line, with whitespace collapsed and a maximum of 96 characters;
+origin defaults to an empty string. Unknown project-creation fields are rejected.
+
+`GET /settings` returns lease durations in seconds:
+
+```json
+{"intent_timeout":5,"reason_timeout":5}
 ```
-intent_timeout  # 单位秒，超过此时间无心跳则 worker 清空为 null
-reason_timeout  # 单位秒，超过此时间无心跳则 Project.reason 清空为 null
+
+`PUT /settings` accepts the same object. Both fields are required and at least 5 seconds.
+An unfinished intent's holder expires after `intent_timeout` without heartbeat. A reason
+lease expires after `reason_timeout`. Reading project state or graph exports also performs
+lease expiry cleanup. These settings do not control worker count or execution timeout.
+[Runtime controls](../runtime-controls.md) use separate endpoints.
+
+## Project API
+
+### List and create
+
+`GET /projects` returns all project summaries, not full graphs. Each includes the project
+metadata plus `fact_count`, `intent_count`, `working_intent_count`,
+`unclaimed_intent_count`, and `hint_count`. Workflow stage projects are included and identified
+by their workflow fields.
+
+`POST /projects` creates an active standalone project. Its minimum request is:
+
+```json
+{"goal":"Find and verify the required result."}
 ```
 
----
-
-## 接口列表
-
-### 全局设置
-
-#### GET /settings
-
-返回全局配置。
-
-响应：
+A complete request can include optional metadata, bootstrap preference, and initial hints:
 
 ```json
 {
-  "intent_timeout": 5,
-  "reason_timeout": 5
-}
-```
-
----
-
-#### PUT /settings
-
-更新全局配置。
-
-Body：
-
-```json
-{
-  "intent_timeout": 5,
-  "reason_timeout": 5
-}
-```
-
----
-
-### Projects
-
-#### GET /projects
-
-返回所有项目列表，含元信息和统计摘要，不含图数据。
-
-响应：
-
-```json
-[
-  {
-    "id": "proj_001",
-    "title": "xx渗透测试",
-    "status": "active",
-    "bootstrap_enabled": true,
-    "created_at": "2026-03-21T10:00:00Z",
-    "reason": {
-      "worker": "dispatcher-worker-A",
-      "trigger": "new_facts",
-      "started_at": "2026-03-21T10:06:00Z",
-      "last_heartbeat_at": "2026-03-21T10:06:03Z"
-    },
-    "fact_count": 8,
-    "intent_count": 5,
-    "working_intent_count": 2,
-    "unclaimed_intent_count": 1,
-    "hint_count": 3
-  }
-]
-```
-
----
-
-#### POST /projects
-
-创建新项目。`origin` 和 `goal` 写入 `facts` 作为特殊 Fact。`hints` 可选。`bootstrap_enabled` 可选，默认为 `true`；为 `false` 时消费者跳过 bootstrap。即使为 `true`，消费者没有 bootstrap 能力时也可直接进入 reason。
-
-本分支只要求非空 `goal`；最小请求为 `{"goal":"Describe the result to achieve."}`。`title` 和 `origin` 是可选元数据。JSON/YAML CLI、工作流创建以及 `PATCH /projects/{id}/metadata`、`PATCH /workflows/{id}/metadata` 的当前说明见 [Agent creation](../agent-creation.md)，机器可读 schema 见 `/openapi.json`。
-
-Body：
-
-```json
-{
-  "title": "xx渗透测试",
-  "origin": "目标 http://192.168.1.10",
-  "goal": "拿到 flag",
+  "title": "Investigation",
+  "origin": "Start from the supplied target and evidence directory.",
+  "goal": "Find and verify the required result.",
   "bootstrap_enabled": true,
-  "hints": [
-    { "content": "优先看 web 服务", "creator": "human" },
-    { "content": "注意 80 端口", "creator": "human" }
-  ]
+  "verification_enabled": false,
+  "hints": [{"content":"Check the existing evidence first.","creator":"human"}]
 }
 ```
 
----
+`verification_enabled` defaults to false. Setting it to true adds the independent completion
+gate described below, for a standalone project or a workflow stage.
 
-#### GET /projects/{project_id}
+The response is full `ProjectDetail`, including the two special facts, empty intents, and
+any supplied hints. `bootstrap_enabled=false` skips the direct attempt for the bundled
+consumer. A consumer without bootstrap support can use reason even when it is enabled.
+See [Agent creation](../agent-creation.md) for JSON/YAML files, stdin, validation, schemas,
+and command-line creation.
 
-返回项目完整数据，包含 facts、intents、hints。
+### Read
 
-响应：
+`GET /projects/{project_id}` returns a full project:
 
 ```json
 {
   "project": {
     "id": "proj_001",
-    "title": "xx渗透测试",
+    "title": "Investigation",
     "status": "active",
     "bootstrap_enabled": true,
+    "verification_enabled": false,
+    "pending_review_id": null,
     "created_at": "2026-03-21T10:00:00Z",
-    "reason": {
-      "worker": "dispatcher-worker-A",
-      "trigger": "new_facts",
-      "started_at": "2026-03-21T10:06:00Z",
-      "last_heartbeat_at": "2026-03-21T10:06:03Z"
-    }
+    "reason": null,
+    "workflow_id": null,
+    "workflow_stage_id": null
   },
   "facts": [
-    { "id": "origin", "description": "目标 http://192.168.1.10" },
-    { "id": "goal",   "description": "拿到 flag" },
-    { "id": "f001",   "description": "发现开放端口 22/80/443" }
+    {"id":"origin","description":"Start from the supplied evidence."},
+    {"id":"goal","description":"Verify the result."},
+    {"id":"f001","description":"Found a candidate in the source material."}
   ],
   "intents": [
     {
       "id": "i001",
       "from": ["origin"],
       "to": "f001",
-      "description": "nmap 全端口扫描",
+      "description": "Inspect the source material.",
       "creator": "agent-A",
-      "worker": "agent-A",
+      "worker": "agent-B",
       "last_heartbeat_at": "2026-03-21T10:02:00Z",
       "created_at": "2026-03-21T10:01:00Z",
       "concluded_at": "2026-03-21T10:02:00Z"
-    },
-    {
-      "id": "i002",
-      "from": ["f001"],
-      "to": null,
-      "description": "http 服务探测与目录扫描",
-      "creator": "agent-A",
-      "worker": "agent-B",
-      "last_heartbeat_at": "2026-03-21T10:04:00Z",
-      "created_at": "2026-03-21T10:03:00Z",
-      "concluded_at": null
     }
   ],
-  "hints": [
-    { "id": "h001", "content": "优先看 web 服务", "creator": "human", "created_at": "2026-03-21T10:00:00Z" },
-    { "id": "h002", "content": "注意 80 端口", "creator": "human", "created_at": "2026-03-21T10:00:00Z" }
-  ]
+  "hints": [],
+  "required_artifacts": [],
+  "expansion": null,
+  "workflow_deleted_at": null
 }
 ```
 
----
+### Metadata and title
 
-#### DELETE /projects/{project_id}
-
-删除项目及其所有数据。
-
-如果某个 Dispatcher 仍持有该项目对应的运行容器，容器不由 Server 直接管理；Dispatcher 在后续轮询中发现项目已不存在后，会把该项目视为 `deleted`，取消本地仍在运行的任务，并删除对应的 orphan 容器。
-
----
-
-#### PUT /projects/{project_id}/title
-
-修改项目标题。该操作不改变项目图，也不影响 `reason` lease、open intent claim 或项目状态；无论项目当前是 `active`、`stopped` 还是 `completed`，都允许修改标题。
-
-Body：
+`PATCH /projects/{project_id}/metadata` refines an active project's title, origin, or both:
 
 ```json
-{
-  "title": "xx渗透测试（复盘）"
-}
+{"title":"Revised investigation","origin":"Use the newly supplied source directory."}
 ```
 
-响应：
+At least one field is required. Provided values must be nonempty strings; null, blank, and
+unknown fields are rejected. The response is full `ProjectDetail`. This operation also works
+for the active stage of a workflow. Changing origin updates its special fact and adds a small
+`metadata` hint so the dispatcher notices the change without repeating the origin text in
+the hint. It does not rewrite completed historical stages.
+
+The original `PUT /projects/{project_id}/title` remains available. It accepts
+`{"title":"Revised investigation"}`, returns `ProjectMeta`, and works in active, stopped,
+and completed states. It does not alter the graph, claims, reason lease, or status.
+
+### Stop and resume
+
+`PUT /projects/{project_id}/status` accepts `{"status":"stopped"}` or
+`{"status":"active"}` for standalone projects. It returns `ProjectMeta`. The operation
+is idempotent when the requested state already applies. Pausing also invalidates pending
+review leases; resume resets exhausted review budgets but keeps their history. Completed projects cannot change
+state through this route; use reopen instead.
+
+Stopping clears all unfinished intent holders and the reason lease immediately. Further
+exploration writes return `403`. Consumers must treat this as a hard stop, cancel their local
+processes, and stop the execution environment. Resume permits immediate new claims without
+waiting for old leases to expire. Because open-intent worker history is not retained, the
+stopped graph cannot identify the last holder of an unfinished intent.
+
+### Delete
+
+`DELETE /projects/{project_id}` deletes a standalone project and its graph, returning `204`.
+The server does not directly control its runtime container. A dispatcher later observing the
+deletion cancels its local tasks and removes the orphan container. Workflow-owned projects
+must be managed through the workflow API.
+
+## Reason lease API
+
+All reason lease operations are exploration writes and require an active project. They return
+`ProjectMeta` and produce no graph fact or intent.
+
+| Endpoint | Body | Behavior |
+| --- | --- | --- |
+| `POST /projects/{id}/reason/claim` | `{"worker":"agent-A","trigger":"new_facts"}` | Claim an empty or expired lease; same-holder requests return the current lease; another live holder gives `409` |
+| `POST /projects/{id}/reason/heartbeat` | `{"worker":"agent-A"}` | Renew the current holder; no holder or another live holder gives `409` |
+| `POST /projects/{id}/reason/release` | `{"worker":"agent-A"}` | Release one's own lease; an already-empty lease is idempotent; another live holder gives `409` |
+
+Stop and completion clear reason state on the server. Project list and detail responses expose
+it so humans and consumers can see that a reasoning task is in progress.
+
+## Hint API
+
+`POST /projects/{project_id}/hints` appends a hint and returns the created `Hint`:
 
 ```json
-{
-  "id": "proj_001",
-  "title": "xx渗透测试（复盘）",
-  "status": "completed",
-  "created_at": "2026-03-21T10:00:00Z",
-  "reason": null
-}
+{"content":"Prioritize the strongest remaining hypothesis.","creator":"human"}
 ```
 
----
+Active, stopped, and completed projects accept hints unless the owning workflow is in Trash.
+A later hint on a project awaiting verification does not change the frozen claim snapshot.
 
-#### PUT /projects/{project_id}/status
+## Intent API
 
-更新项目状态。仅允许 `active` 和 `stopped` 之间切换。`completed` 项目不可通过该接口再次变更状态；若需要撤销完成态，必须调用专用的 `reopen` 接口。该接口属于项目管理操作，不属于探索写操作。
+All intent operations below require an active project. Stopped and completed projects reject
+exploration writes with `403`. Pending independent review blocks producer exploration writes
+with `409`. A trashed owning workflow also blocks mutations with `409`. Concluded intents
+cannot be claimed, released, or concluded again.
 
-当项目切到 `stopped` 时，Server 会立即把所有尚无结论的 Intent 的 `worker` 清空为 `null`，并把 `project.reason` 清空，使这些 claim 立刻失效。这样项目恢复后可以马上重新认领，不必等待超时。`stopped` 的语义是硬停止：Server 负责拒绝后续探索写操作并清空 open intent claim / reason lease；消费者拿到这个信号后应立刻取消本地仍在运行的任务，并停止对应项目容器。
+### Declare
 
-已知问题：当前协议里，Intent 级只保存“当前 claim 持有者”这一份信息，也就是 `intent.worker`。因此项目一旦被切到 `stopped`，这些 open intent 的 `worker` 会被立即清空；停止后从项目详情里将无法直接看出“该 intent 在停止前最后是由哪个 worker 在推进”。后续可以考虑增加类似 `worker_history` 的 Intent 级历史字段来保留这部分可见性，但当前版本尚未实现。
-
-Body：
-
-```json
-{
-  "status": "stopped"
-}
-```
-
-响应：
+`POST /projects/{project_id}/intents` creates an unfinished intent:
 
 ```json
 {
-  "id": "proj_001",
-  "title": "xx渗透测试",
-  "status": "stopped",
-  "created_at": "2026-03-21T10:00:00Z",
-  "reason": null
-}
-```
-
----
-
-#### POST /projects/{project_id}/reason/claim
-
-认领项目级 `reason` lease。它不属于图，不产生 Intent/Fact，只表示“当前有人正在对整个项目做一次 `reason` 判断”。单个项目同一时刻最多只能有一个 `reason` lease。
-
-若当前 `project.reason` 为空，则 claim 成功并写入 `worker`、`trigger`、`started_at`、`last_heartbeat_at`。若当前已被其他消费者占用且未超时，返回 409。若当前已被同一 `worker` 占用，则幂等返回当前状态。该接口属于探索写操作，仅 `active` 项目允许；`stopped` 或 `completed` 返回 403。
-
-Body：
-
-```json
-{
-  "worker": "dispatcher-worker-A",
-  "trigger": "new_facts"
-}
-```
-
-响应：
-
-```json
-{
-  "id": "proj_001",
-  "title": "xx渗透测试",
-  "status": "active",
-  "created_at": "2026-03-21T10:00:00Z",
-  "reason": {
-    "worker": "dispatcher-worker-A",
-    "trigger": "new_facts",
-    "started_at": "2026-03-21T10:06:00Z",
-    "last_heartbeat_at": "2026-03-21T10:06:00Z"
-  }
-}
-```
-
----
-
-#### POST /projects/{project_id}/reason/heartbeat
-
-当前 `worker` 对项目级 `reason` lease 续约，更新 `last_heartbeat_at`。仅当前持有该 lease 的 `worker` 可以续约；若当前无人持有，返回 409；若被其他消费者占用且未超时，返回 409。该接口属于探索写操作，仅 `active` 项目允许；`stopped` 或 `completed` 返回 403。
-
-Body：
-
-```json
-{
-  "worker": "dispatcher-worker-A"
-}
-```
-
----
-
-#### POST /projects/{project_id}/reason/release
-
-当前 `worker` 主动释放项目级 `reason` lease，使其立刻回到无人执行 `reason` 的状态。仅当前持有者本人可以释放；若当前已为空，则幂等返回当前状态；若被其他消费者占用且未超时，返回 409。该接口属于探索写操作，仅 `active` 项目允许；`stopped` 或 `completed` 返回 403。
-
-Body：
-
-```json
-{
-  "worker": "dispatcher-worker-A"
-}
-```
-
----
-
-### Hints
-
-#### POST /projects/{project_id}/hints
-
-向项目补充一条策略提示。Hint 属于图外输入写操作，`active`、`stopped` 和 `completed` 项目均允许。
-
-Body：
-
-```json
-{
-  "content": "尝试文件上传绕过",
-  "creator": "agent-A"
-}
-```
-
----
-
-### Intents
-
-#### POST /projects/{project_id}/intents
-
-从某个 Fact 出发声明探索意图，产生一条尚无结论的 Intent。可选择只声明，或声明并同时认领。Intent 属于探索写操作，仅 `active` 项目允许；`stopped` 或 `completed` 返回 403。
-
-Body：
-
-```json
-{
-  "from": ["f001"],
-  "description": "http 服务探测与目录扫描",
+  "from": ["f002", "f004"],
+  "description": "Test the relationship supported by both findings.",
   "creator": "agent-A",
   "worker": null
 }
 ```
 
-`from` 为数组，至少包含一个 Fact id。`worker` 可为 `null` 或等于 `creator`；`null` 表示只声明不认领，等于 `creator` 表示声明并立即认领。多个 Fact 共同驱动同一次探索时，全部列入 `from`，完整保留因果关系。例如：
+Sources must be nonempty and reference existing facts in that project; `goal` is not a valid
+source. `worker=null` declares without claiming. Setting `worker` equal to `creator` claims
+on creation. Other worker values are rejected. The response is the created `Intent`. The
+server treats `description="bootstrap"` as ordinary text; its reserved interpretation belongs
+to the consumer.
 
-`from` 不能包含 `goal`。
+### Claim and heartbeat
 
-服务端不校验 `description` 的业务语义，因此像 `description = "bootstrap"` 这样的保留 intent 也只是普通 Intent。是否把它解释为“项目最初阶段的直接推进尝试”，由消费者自己约定。
+`POST /projects/{project_id}/intents/{intent_id}/heartbeat` accepts:
+
+```json
+{"worker":"agent-B"}
+```
+
+It claims an unheld or expired unfinished intent or renews the current holder. Another live
+holder produces `409`. Consumers should continue heartbeats at a regular interval and poll
+project status. An inactive-project response invalidates the old claim and requires local
+work to stop.
+
+### Release
+
+`POST /projects/{project_id}/intents/{intent_id}/release` accepts the same worker body and
+returns the updated `Intent`. Only the current holder can release a live claim. An already
+unclaimed intent returns its current state. Another live holder produces `409`.
+`last_heartbeat_at` is retained.
+
+### Conclude
+
+`POST /projects/{project_id}/intents/{intent_id}/conclude` atomically appends a fact and
+concludes the intent:
+
+```json
+{"worker":"agent-B","description":"The candidate passes all recorded checks."}
+```
+
+The current holder can conclude. An unclaimed or expired intent can also be concluded by the
+requesting worker. Another live holder produces `409`. The response contains `fact` and
+`intent`. The new fact receives a generated ID; the intent's `to` points to it,
+`concluded_at` is set, and its producing worker is permanently retained.
+
+## Completion and external feedback
+
+### Complete
+
+`POST /projects/{project_id}/complete` atomically declares that source facts satisfy the goal:
+
+```json
+{"from":["f007","f012"],"description":"Both required checks passed.","worker":"agent-A"}
+```
+
+With verification off, it creates a concluded intent whose sources are the supplied facts and whose destination is
+`goal`. Both `creator` and `worker` use the supplied worker. The project becomes completed
+and its reason lease is cleared. The response is the completion `Intent`. Sources must exist
+and cannot contain `goal`.
+
+Ordinary completion with verification off requires an active project; a repeated standalone
+completion gives `403`.
+Workflow-owned projects additionally enforce their artifact and goal-expansion contracts.
+Those extensions, including expandable-completion idempotence, are described in
+[Staged workflows](../workflows.md). They do not change ordinary standalone completion with verification off.
+
+### Completion with verification enabled
+
+When `verification_enabled=true`, `/complete` takes two additional producer identity fields:
 
 ```json
 {
-  "from": ["f002", "f004"],
-  "description": "用 f004 获取的凭据登录 f002 发现的后台",
-  "creator": "agent-A",
-  "worker": "agent-A"
+  "from": ["f007", "f012"],
+  "description": "Both required checks passed.",
+  "worker": "agent-A",
+  "producer_agent_id": "producer_run_001",
+  "producer_session_id": "producer_session_001"
 }
 ```
 
-响应：新创建的 Intent 对象。
+The server requires all exploration intents to be concluded and all required artifacts to be
+uploaded. It validates any proposed workflow goals before accepting the request. The response
+is a `CompletionClaim`, not an `Intent`. The project remains active, exposes
+`pending_review_id`, and has no goal-completion edge. Producer mutation and artifact replacement
+are blocked while the claim is pending. Identical completion submission returns its recorded
+claim; a different submission while a claim is pending gives `409`.
 
----
+The claim stores the completion request, producer identity, and frozen facts, hints, artifact
+metadata, and artifact bytes. Its artifact URLs point to immutable claim downloads. Read
+`GET /reviews` for paginated summaries, optionally filtered by `project_id`, and
+`GET /reviews/{id}` for selected full context. Public reads omit the private lease token.
 
-#### POST /projects/{project_id}/intents/{intent_id}/heartbeat
+A fresh reviewer claims `/reviews/{id}/claim` with `agent_id`, `session_id`, and `worker`.
+It renews or releases through `/heartbeat` and `/release` using the same identity plus the
+returned `lease_token`. `/decision` requires those fields, `decision` of `approved` or
+`rejected`, nonblank `feedback`, and an `evidence` array. Approval requires at least one
+nonblank observed evidence item. An optional `cli_session_id` records the actual reviewer
+CLI session when available. Matching producer agent/session identities, including an
+extracted producer CLI session, are rejected. These IDs are audit identities, not credentials.
 
-消费者上报存活，更新 `worker` 和 `last_heartbeat_at`。仅对尚无结论的 Intent 有效。该接口用于续约，或在某条 Intent 已超时变为未认领后重新接手。若当前 `worker` 为 `null`，任意消费者可通过 heartbeat 认领；若当前 `worker` 已被其他消费者占用且未超时，返回 409。Heartbeat 属于探索写操作，仅 `active` 项目允许；`stopped` 或 `completed` 返回 403。
+Approval applies the frozen completion atomically. A workflow's successors and proposed goals
+wait until that approval. Rejection leaves the goal active and adds an actionable rework
+intent. Three rejected claims or an exhausted three-attempt review execution budget pauses
+automatic work until explicit resume. Pausing or moving the workflow to Trash invalidates
+old review leases. Complete field bounds, lease timing, idempotence, and recovery semantics
+are in [Independent verification](../verification.md).
 
-消费者通常会按固定心跳周期继续 heartbeat 或轮询项目；项目进入 `stopped` 或 `completed` 后，继续 heartbeat 会返回 403，而轮询读取会看到项目 `status` 变化。由于 Server 在 `stopped` 时会立即清空 open intent 的 `worker`，消费者应把它当作硬停止信号，尽快终止本地推进，而不是继续依赖旧 claim。
+### Reopen
 
-Body：
+`POST /projects/{project_id}/reopen` is a standalone-project management operation allowed
+only for completed projects:
 
 ```json
-{
-  "worker": "agent-B"
-}
+{"description":"External validation disproved the submitted result; continue investigating.","creator":"reviewer"}
 ```
 
----
+The server removes the single current completion edge and preserves its source fact IDs.
+It creates a corrective fact and a concluded intent with `description="external_feedback"`,
+those same sources, and the new fact as destination. Both `creator` and `worker` use the
+request's creator. The project returns to active and its reason lease is cleared.
+The response contains `project`, `fact`, and `intent`.
 
-#### POST /projects/{project_id}/intents/{intent_id}/release
+The removed completion edge is not retained as a past completion event in the graph. The
+corrective fact supplies the new evidence for further exploration. This is explicit external
+feedback rather than mutation of an ordinary finding.
 
-当前 `worker` 主动释放一条尚无结论的 Intent，使其回到未认领状态，供其他消费者立即接手。仅当前 `worker` 本人可以释放；若被其他消费者占用且未超时，返回 409。若该 Intent 当前已未认领，则幂等返回当前状态。`last_heartbeat_at` 保留，不清空。Release 属于探索写操作，仅 `active` 项目允许；`stopped` 或 `completed` 返回 403。
+## Exports
 
-Body：
+### YAML graph
 
-```json
-{
-  "worker": "agent-B"
-}
-```
-
-响应：更新后的 Intent 对象。
-
----
-
-#### POST /projects/{project_id}/intents/{intent_id}/conclude
-
-探索结束，产出新 Fact 并将 Intent 结论落定。原子操作。仅对尚无结论的 Intent 有效。claim 规则与 heartbeat 相同：未认领可直接 conclude；由当前 `worker` conclude；若被其他消费者占用且未超时，返回 409。Conclude 属于探索写操作，仅 `active` 项目允许；`stopped` 或 `completed` 返回 403。
-
-`worker` 写入后永久保留，标识本次结论由谁产出。
-
-Body：
-
-```json
-{
-  "worker": "agent-B",
-  "description": "80端口运行 nginx 1.18，存在目录遍历"
-}
-```
-
-响应：
-
-```json
-{
-  "fact": {
-    "id": "f002",
-    "description": "80端口运行 nginx 1.18，存在目录遍历"
-  },
-  "intent": {
-    "id": "i002",
-    "from": ["f001"],
-    "to": "f002",
-    "description": "http 服务探测与目录扫描",
-    "creator": "agent-A",
-    "worker": "agent-B",
-    "last_heartbeat_at": "2026-03-21T10:05:00Z",
-    "created_at": "2026-03-21T10:03:00Z",
-    "concluded_at": "2026-03-21T10:05:00Z"
-  }
-}
-```
-
----
-
-#### POST /projects/{project_id}/complete
-
-消费者判断某些 Facts 共同满足 goal 后调用，声明项目完成。原子操作。Complete 属于探索写操作，仅 `active` 项目允许；`stopped` 或 `completed` 返回 403。
-
-创建一条 `from` 指向所列 Facts、`to` 指向 `goal` 的已结论 Intent。完成声明无探索过程，服务端将 `creator` 和 `worker` 均设为请求中的 `worker` 值。Project 状态变为 `completed`，并立即清空当前 `project.reason`。
-
-如果后续外部验证发现这次完成判断有误，可再调用 `POST /projects/{project_id}/reopen` 撤销这条完成边，并把纠错信息写成新的 Fact 后继续探索。
-
-`from` 不能包含 `goal`。
-
-Body：
-
-```json
-{
-  "from": ["f007", "f012", "f015"],
-  "description": "三个 shell 均已获取，满足 goal 要求",
-  "worker": "agent-A"
-}
-```
-
----
-
-#### POST /projects/{project_id}/reopen
-
-外部确认项目其实尚未完成时，显式撤销当前完成态。该接口属于项目管理操作，不属于探索写操作；仅 `completed` 项目允许调用。
-
-服务端会：
-
-- 找到当前唯一一条 `to=goal` 的完成边
-- 读取它原本的 `from`
-- 删除这条完成边，不保留“曾完成过一次”的图内历史
-- 新建一个普通 Fact，内容为调用者提供的客观纠错说明
-- 新建一条已结论 Intent，`description` 固定为 `external_feedback`，其 `from` 继承原完成边的 `from`，`to` 指向这个新 Fact
-- 将 `creator` 和 `worker` 都写为请求中的 `creator`
-- 将项目状态改回 `active`
-- 清空当前 `project.reason`
-
-这适合诸如“提交的 flag 是错的，需要继续寻找正确 flag”这类图外反馈。反馈本身被记成图中的新 Fact，而 `reopen` 只是触发这次改写的控制动作。
-
-Body：
-
-```json
-{
-  "description": "flag FLAG{fake} 是错误的，需要继续寻找正确 flag",
-  "creator": "judge"
-}
-```
-
-响应：
-
-```json
-{
-  "project": {
-    "id": "proj_001",
-    "title": "xx渗透测试",
-    "status": "active",
-    "created_at": "2026-03-21T10:00:00Z",
-    "reason": null
-  },
-  "fact": {
-    "id": "f016",
-    "description": "flag FLAG{fake} 是错误的，需要继续寻找正确 flag"
-  },
-  "intent": {
-    "id": "i021",
-    "from": ["f008"],
-    "to": "f016",
-    "description": "external_feedback",
-    "creator": "judge",
-    "worker": "judge",
-    "last_heartbeat_at": "2026-03-21T10:10:00Z",
-    "created_at": "2026-03-21T10:10:00Z",
-    "concluded_at": "2026-03-21T10:10:00Z"
-  }
-}
-```
-
----
-
-### 导出
-
-#### GET /projects/{project_id}/export?format=yaml
-
-返回项目图的 YAML 结构化快照，供消费者读取。不含 `last_heartbeat_at`。尚无结论的 Intent（`to=null`）出现在 YAML 中，`worker` 字段直接反映当前是否有消费者在处理。`project.reason` 不在导出中出现，因为它是项目级协调状态，不属于事实图。读取时服务端仍会执行超时清理，因此导出结果反映的是清理后的当前状态。`created_at` 和 `concluded_at` 按服务端当前时区格式化为 `YYYY-MM-DD HH:mm:ss`。
+`GET /projects/{project_id}/export?format=yaml` returns a YAML snapshot for consumers. It
+includes project title, origin, goal, bootstrap preference, hints, facts, and intents, including
+unfinished intents. It excludes heartbeat timestamps and the reason lease because those are
+coordination state. The server expires old claims before export, so `worker` reflects the
+current holder. Creation and conclusion timestamps use the server's local timezone and
+`YYYY-MM-DD HH:mm:ss` format.
 
 ```yaml
 project:
-  title: "xx渗透测试"
-  origin: "目标 http://192.168.1.10"
-  goal: "拿到 flag"
+  title: Investigation
+  origin: Start from the supplied evidence.
+  goal: Verify the result.
   bootstrap_enabled: true
-
 hints:
-  - content: "优先看 web 服务"
-    creator: "human"
-    created_at: "2026-03-21 18:00:00"
-  - content: "注意 80 端口"
-    creator: "human"
-    created_at: "2026-03-21 18:00:00"
-
+  - content: Check independent evidence.
+    creator: human
+    created_at: "2026-03-21 10:00:00"
 facts:
   - id: origin
-    description: "目标 http://192.168.1.10"
+    description: Start from the supplied evidence.
   - id: goal
-    description: "拿到 flag"
+    description: Verify the result.
   - id: f001
-    description: "发现开放端口 22/80/443"
-  - id: f002
-    description: "80端口运行 nginx 1.18，存在目录遍历"
-  - id: f003
-    description: "遍历发现 /backup/db.sql，包含用户表"
-  - id: f004
-    description: "获得凭据 admin/passwd123"
-  - id: f005
-    description: "ssh 登录失败，凭据不通用"
-  - id: f006
-    description: "web后台登录成功，发现文件上传功能"
-  - id: f007
-    description: "上传 webshell 成功，获得 www-data shell"
-  - id: f008
-    description: "在 /var/www/html/flag.txt 找到 flag{abc123}"
-
+    description: Found a candidate.
 intents:
   - from: [origin]
     to: f001
-    description: "nmap 全端口扫描"
-    creator: "agent-A"
-    worker: "agent-A"
-    created_at: "2026-03-21 18:01:00"
-    concluded_at: "2026-03-21 18:02:00"
-
+    description: Inspect the source material.
+    creator: agent-A
+    worker: agent-B
+    created_at: "2026-03-21 10:01:00"
+    concluded_at: "2026-03-21 10:02:00"
   - from: [f001]
-    to: f002
-    description: "http 服务探测与目录扫描"
-    creator: "agent-A"
-    worker: "agent-B"
-    created_at: "2026-03-21 18:02:00"
-    concluded_at: "2026-03-21 18:04:00"
-
-  - from: [f002]
-    to: f003
-    description: "利用目录遍历下载 /backup/db.sql"
-    creator: "agent-B"
-    worker: "agent-B"
-    created_at: "2026-03-21 18:04:00"
-    concluded_at: "2026-03-21 18:05:00"
-
-  - from: [f003]
-    to: f004
-    description: "解析 db.sql 提取用户凭据"
-    creator: "agent-A"
-    worker: "agent-A"
-    created_at: "2026-03-21 18:05:00"
-    concluded_at: "2026-03-21 18:05:30"
-
-  - from: [f004]
-    to: f005
-    description: "尝试 ssh 登录"
-    creator: "agent-A"
-    worker: "agent-C"
-    created_at: "2026-03-21 18:05:30"
-    concluded_at: "2026-03-21 18:06:00"
-
-  - from: [f002, f004]
-    to: f006
-    description: "用 f004 获取的凭据登录 f002 发现的后台"
-    creator: "agent-A"
-    worker: "agent-B"
-    created_at: "2026-03-21 18:05:30"
-    concluded_at: "2026-03-21 18:06:00"
-
-  - from: [f006]
-    to: f007
-    description: "上传 php webshell 绕过扩展名检测"
-    creator: "agent-B"
-    worker: "agent-B"
-    created_at: "2026-03-21 18:06:00"
-    concluded_at: "2026-03-21 18:07:00"
-
-  - from: [f007]
-    to: f008
-    description: "在 shell 中搜索 flag 文件"
-    creator: "agent-B"
-    worker: "agent-A"
-    created_at: "2026-03-21 18:07:00"
-    concluded_at: "2026-03-21 18:08:00"
-
-  - from: [f008]
-    to: goal
-    description: "flag{abc123} 满足 goal 要求"
-    creator: "agent-A"
-    worker: "agent-A"
-    created_at: "2026-03-21 18:08:00"
-    concluded_at: "2026-03-21 18:08:01"
-```
-
-尚无结论的 Intent 示例（`worker` 不为 null 表示有消费者正在处理）：
-
-```yaml
-  - from: [f003]
     to: null
-    description: "尝试利用目录遍历读取敏感文件"
-    creator: "agent-A"
-    worker: "agent-C"
-    created_at: "2026-03-21 18:09:00"
+    description: Verify the candidate independently.
+    creator: agent-A
+    worker: agent-C
+    created_at: "2026-03-21 10:03:00"
     concluded_at: null
 ```
 
----
+Workflow stage exports add bounded workflow metadata and a historical-context index reference.
+They do not embed the earlier stages' full graphs or completion prose.
 
-#### GET /projects/{project_id}/export?format=timeline
+### Timeline
 
-返回项目的时间线纯文本，按事件发生时间排序。YAML 快照展示图的结构拓扑，timeline 展示事件的先后顺序和因果链，两者互补。事件类型包括 `PROJECT CREATED`、`HINT`、`INTENT DECLARED`、`INTENT CONCLUDED`、`PROJECT COMPLETED`。若项目曾经完成后又被 `reopen`，由于旧的 `goal` 边已被撤销，timeline 中不会保留之前那次 `PROJECT COMPLETED` 事件。
+`GET /projects/{project_id}/export?format=timeline` returns chronological plain text. The YAML
+export shows graph structure; the timeline shows event order and causal references. Event
+types include `PROJECT CREATED`, `HINT`, `INTENT DECLARED`, `INTENT CONCLUDED`, and
+`PROJECT COMPLETED`. A completion withdrawn by reopen is absent from the resulting timeline.
 
----
+## Other current APIs
 
-## 消费者典型使用流程
+[Runtime controls](../runtime-controls.md) documents `GET /runtime`, the lightweight
+`GET /runtime/settings` poll, `PUT /runtime/settings`, and safe dispatcher heartbeats. Its
+nullable overrides apply independently per dispatcher and do not replace `/settings` leases.
 
-```
-1. 读取结构化项目数据
-   用于调度、状态判断、intent 选择与协议写回
+[Token usage](../usage.md) documents `POST /usage/attempts`, `GET /usage/summary`,
+`GET /usage/attempts`, and `POST /usage/reporters`. Counts are available CLI telemetry with
+explicit reporting coverage. They are not provider billing totals.
 
-2. GET /projects/{id}/export?format=yaml
-   读取图快照（仅供 Dispatcher 渲染给 Agent）
+[Workflow management](../workflow-management.md) documents `GET /workflow-trash`, recoverable
+workflow `DELETE`, and `POST /workflows/{id}/restore`. Workflow Trash preserves data and blocks
+writes. It does not change permanent standalone `DELETE /projects/{id}` semantics. A trashed
+stage remains readable with `workflow_deleted_at` in its project detail.
 
-3. 若项目仍处于最初阶段：
-   典型判定是 facts 只有 `origin` 和 `goal`，且没有普通 intent；
-   某些消费者会允许“没有任何 intent”，或“只存在保留 bootstrap intent”都视为初始态
-   若 `project.bootstrap_enabled=false`，或消费者不具备 bootstrap 能力，则直接进入 reason；
-   a. 若尚不存在保留 bootstrap intent：
-      POST /projects/{id}/intents
-        { from: ["origin"], description: "bootstrap", creator: "dispatcher.bootstrap", worker: null }
-   b. POST /projects/{id}/intents/{intent_id}/heartbeat
-        { worker: "dispatcher-worker-A" }
-      认领成功后，直接做一轮 `bootstrap`
-   c. 推进过程中持续 heartbeat
-   d. 若拿到了关键证明性事实：
-      POST /projects/{id}/intents/{intent_id}/conclude
-        { worker: "dispatcher-worker-A", description: "发现登录页存在默认口令 admin:admin" }
-      若该新 fact 已足以满足 goal，也可继续：
-      POST /projects/{id}/complete
-        { from: ["新写入的 fact id"], description: "为什么该事实已足以满足 goal", worker: "dispatcher-worker-A" }
-   e. 若本轮 bootstrap 失败且需要放弃：
-      POST /projects/{id}/intents/{intent_id}/release
-        { worker: "dispatcher-worker-A" }
-   f. 回到步骤 1
+## Typical consumer flow
 
-4. 若图中存在未认领的普通 Intent（worker=null）：
-   a. 选择一条可认领 Intent
-   b. POST /projects/{id}/intents/{intent_id}/heartbeat
-        { worker: "dispatcher-worker-A" }
-      认领成功后，派发一次 `explore`
-   c. 探索过程中持续 heartbeat
-   d. 探索成功时：
-      POST /projects/{id}/intents/{intent_id}/conclude
-        { worker: "dispatcher-worker-A", description: "发现 /search 参数存在报错注入" }
-   e. 若探索失败且需要放弃：
-      POST /projects/{id}/intents/{intent_id}/release
-        { worker: "dispatcher-worker-A" }
-   f. 回到步骤 1
-
-5. 若图中没有未认领 Intent：
-   a. POST /projects/{id}/reason/claim
-        { worker: "dispatcher-worker-A", trigger: "new_facts" }
-      认领成功后，派发一次 `reason`
-   b. 推进过程中持续 POST /projects/{id}/reason/heartbeat
-        { worker: "dispatcher-worker-A" }
-   c. 若 `reason` 返回完成结论：
-      POST /projects/{id}/complete
-        { from: ["f008"], description: "flag{abc} 满足 goal 要求", worker: "dispatcher-worker-A" }
-      流程结束
-   d. 若 `reason` 返回新的 intent：
-      POST /projects/{id}/intents
-        { from: ["f003"], description: "尝试 SQL 注入", creator: "dispatcher-worker-A", worker: null }
-      然后 POST /projects/{id}/reason/release
-        { worker: "dispatcher-worker-A" }
-   e. 若 `reason` 未返回完成结论，也未返回新 intent：
-      POST /projects/{id}/reason/release
-        { worker: "dispatcher-worker-A" }
-      本轮不写图
-   f. 若 `reason` 执行失败、超时或需要放弃：
-      POST /projects/{id}/reason/release
-        { worker: "dispatcher-worker-A" }
-   g. 回到步骤 1
-
-6. 若项目已 `completed`，但图外验证确认之前的完成判断有误：
-   a. POST /projects/{id}/reopen
-        { description: "flag FLAG{fake} 是错误的，需要继续寻找正确 flag", creator: "judge" }
-   b. 项目回到 `active`，图中新增一条 `external_feedback` 结论边和一个纠错 Fact
-   c. 回到步骤 1
-```
+1. Read structured project state for scheduling, claims, and valid fact references.
+2. Export the current graph when needed to prepare a reason or explore prompt.
+3. For an initial project, use bootstrap if enabled and supported. Create the reserved intent
+   if missing, claim it, maintain heartbeat, and conclude any confirmed result. Complete only
+   if the new fact proves the goal; otherwise continue from the updated graph. Release failed
+   attempts.
+4. For an unclaimed ordinary intent, claim before launching exploration, maintain heartbeat,
+   and conclude the factual result. Release an abandoned attempt.
+5. When reason is due and no unclaimed intent remains, claim the project reason lease and
+   maintain its heartbeat. Complete, declare new unclaimed intents, or make no graph change
+   while other work continues. Release reason after the attempt while still active.
+6. If completion returns a pending claim, stop producer work and let a fresh reviewer decide
+   it through the review API. Do not treat the claim as completed or unlock successors.
+7. Stop local execution when project state becomes inactive or a lease is lost. Resume from
+   fresh server state rather than trusting an old claim.
+8. If external validation disproves a completed standalone result, reopen with factual
+   feedback, then return to the normal active-project loop.

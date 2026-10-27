@@ -1,10 +1,16 @@
 from fastapi import APIRouter, HTTPException
 
 from cairn.server.db import get_conn
+from cairn.server.verification_models import CompletionClaim
+from cairn.server.verification_service import submit_claim, invalidate_review_lease
 from cairn.server.artifact_service import requirements_for_project, require_stage_artifacts
-from cairn.server.workflow_service import complete_workflow_stage, require_standalone_project
+from cairn.server.workflow_service import (
+    complete_workflow_stage, require_standalone_project, expansion_for_project,
+    append_generated_goals, request_expansion_recovery,
+)
 from cairn.server.models import (
     CompleteRequest,
+    ConcludeRequest,
     CreateProjectRequest,
     Fact,
     Hint,
@@ -19,6 +25,7 @@ from cairn.server.models import (
     UpdateProjectTitleRequest,
     UpdateProjectStatusRequest,
     UpdateMetadataRequest,
+    StageCompletion,
 )
 from cairn.server.services import (
     build_intents,
@@ -70,6 +77,8 @@ def list_projects():
                 reason=project_reason_from_row(row),
                 workflow_id=row["workflow_id"],
                 workflow_stage_id=row["workflow_stage_id"],
+                verification_enabled=bool(row["verification_enabled"]),
+                pending_review_id=row["pending_review_id"],
                 fact_count=row["fact_count"],
                 intent_count=row["intent_count"],
                 working_intent_count=row["working_intent_count"],
@@ -87,8 +96,8 @@ def create_project(body: CreateProjectRequest):
         now = utcnow()
 
         conn.execute(
-            "INSERT INTO projects (id, title, status, bootstrap_enabled, created_at) VALUES (?, ?, 'active', ?, ?)",
-            (pid, body.title, body.bootstrap_enabled, now),
+            "INSERT INTO projects (id, title, status, bootstrap_enabled, created_at, verification_enabled) VALUES (?, ?, 'active', ?, ?, ?)",
+            (pid, body.title, body.bootstrap_enabled, now, body.verification_enabled),
         )
         conn.execute(
             "INSERT INTO facts (id, project_id, description) VALUES (?, ?, ?)",
@@ -115,6 +124,7 @@ def create_project(body: CreateProjectRequest):
                 title=body.title,
                 status="active",
                 bootstrap_enabled=body.bootstrap_enabled,
+                verification_enabled=body.verification_enabled,
                 created_at=now,
                 reason=None,
             ),
@@ -140,12 +150,15 @@ def _project_detail(conn, row) -> ProjectDetail:
     project_id = row["id"]
     facts = conn.execute("SELECT * FROM facts WHERE project_id = ?", (project_id,)).fetchall()
     hints = conn.execute("SELECT * FROM hints WHERE project_id = ? ORDER BY created_at", (project_id,)).fetchall()
+    workflow = conn.execute("SELECT deleted_at FROM workflows WHERE id=?", (row["workflow_id"],)).fetchone() if row["workflow_id"] else None
     return ProjectDetail(
+        workflow_deleted_at=workflow["deleted_at"] if workflow else None,
         project=project_meta_from_row(row),
         facts=[Fact(**dict(f)) for f in facts],
         intents=build_intents(conn, project_id),
         hints=[Hint(**dict(h)) for h in hints],
         required_artifacts=requirements_for_project(conn, project_id),
+        expansion=expansion_for_project(conn, project_id),
     )
 
 
@@ -166,7 +179,9 @@ def delete_project(project_id: str):
 @router.put("/projects/{project_id}/title", response_model=ProjectMeta)
 def update_project_title(project_id: str, body: UpdateProjectTitleRequest):
     with get_conn() as conn:
-        get_project_or_404(conn, project_id)
+        project = get_project_or_404(conn, project_id)
+        from cairn.server.workflow_management import require_project_writable
+        require_project_writable(conn, project)
         conn.execute(
             "UPDATE projects SET title = ? WHERE id = ?",
             (body.title, project_id),
@@ -191,7 +206,11 @@ def update_project_status(project_id: str, body: UpdateProjectStatusRequest):
             "UPDATE projects SET status = ? WHERE id = ?",
             (body.status, project_id),
         )
+        if body.status == "active":
+            conn.execute("UPDATE projects SET verification_rejections=0 WHERE id=?", (project_id,))
+            conn.execute("UPDATE completion_claims SET review_attempts=0 WHERE project_id=? AND status='pending'", (project_id,))
         if body.status == "stopped":
+            invalidate_review_lease(conn, project_id)
             conn.execute(
                 "UPDATE intents SET worker = NULL WHERE project_id = ? AND concluded_at IS NULL",
                 (project_id,),
@@ -267,55 +286,81 @@ def release_project_reason(project_id: str, body: HeartbeatRequest):
         return project_meta_from_row(updated)
 
 
-@router.post("/projects/{project_id}/complete", response_model=Intent)
+@router.post("/projects/{project_id}/complete", response_model=Intent | CompletionClaim)
 def complete_project(project_id: str, body: CompleteRequest):
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        project = check_project_active(conn, project_id)
-        expire_reason_leases(conn, project_id)
+        existing_project = get_project_or_404(conn, project_id)
+        from cairn.server.workflow_management import require_project_writable
+        require_project_writable(conn, existing_project)
         validate_facts_exist(conn, project_id, body.from_)
         validate_goal_not_in_sources(body.from_)
+        if existing_project["verification_enabled"]:
+            require_stage_artifacts(conn, project_id)
+            return submit_claim(conn, existing_project, body)
+        if existing_project["status"] == "completed" and expansion_for_project(conn, project_id) is not None:
+            stage = conn.execute("SELECT completion_json FROM workflow_stages WHERE project_id = ?", (project_id,)).fetchone()
+            recorded = StageCompletion.model_validate_json(stage["completion_json"])
+            intent = get_completion_intent_or_409(conn, project_id)
+            if (recorded.description == body.description and recorded.from_ == body.from_
+                    and recorded.goals == body.goals and intent["worker"] == body.worker):
+                return intent_to_model(conn, intent, project_id)
+            raise HTTPException(409, "This expandable stage is already completed with different results")
+        project = check_project_active(conn, project_id)
+        expire_reason_leases(conn, project_id)
+        return apply_completion(conn, project, body)
 
-        require_stage_artifacts(conn, project_id)
 
-        now = utcnow()
-        iid = next_intent_id(conn, project_id)
+def apply_completion(conn, project, body):
+    project_id = project["id"]
+    require_stage_artifacts(conn, project_id)
+    append_generated_goals(conn, project, body.goals)
 
+    now = utcnow()
+    iid = next_intent_id(conn, project_id)
+
+    conn.execute(
+        "INSERT INTO intents (id, project_id, to_fact_id, description, creator, worker, last_heartbeat_at, created_at, concluded_at) VALUES (?, ?, 'goal', ?, ?, ?, ?, ?, ?)",
+        (iid, project_id, body.description, body.worker, body.worker, now, now, now),
+    )
+    for fid in body.from_:
         conn.execute(
-            "INSERT INTO intents (id, project_id, to_fact_id, description, creator, worker, last_heartbeat_at, created_at, concluded_at) VALUES (?, ?, 'goal', ?, ?, ?, ?, ?, ?)",
-            (iid, project_id, body.description, body.worker, body.worker, now, now, now),
+            "INSERT INTO intent_sources (intent_id, project_id, fact_id) VALUES (?, ?, ?)",
+            (iid, project_id, fid),
         )
-        for fid in body.from_:
-            conn.execute(
-                "INSERT INTO intent_sources (intent_id, project_id, fact_id) VALUES (?, ?, ?)",
-                (iid, project_id, fid),
-            )
-        conn.execute(
-            """
-            UPDATE projects
-            SET status = 'completed',
-                reason_worker = NULL,
-                reason_trigger = NULL,
-                reason_started_at = NULL,
-                reason_last_heartbeat_at = NULL
-            WHERE id = ?
-            """,
-            (project_id,),
-        )
+    conn.execute(
+        """
+        UPDATE projects
+        SET status = 'completed',
+            reason_worker = NULL,
+            reason_trigger = NULL,
+            reason_started_at = NULL,
+            reason_last_heartbeat_at = NULL
+        WHERE id = ?
+        """,
+        (project_id,),
+    )
 
-        complete_workflow_stage(conn, project, body.description, body.from_, now)
+    complete_workflow_stage(conn, project, body.description, body.from_, now, body.goals)
 
-        return Intent(
-            id=iid,
-            **{"from": body.from_},
-            to="goal",
-            description=body.description,
-            creator=body.worker,
-            worker=body.worker,
-            last_heartbeat_at=now,
-            created_at=now,
-            concluded_at=now,
-        )
+    return Intent(
+        id=iid,
+        **{"from": body.from_},
+        to="goal",
+        description=body.description,
+        creator=body.worker,
+        worker=body.worker,
+        last_heartbeat_at=now,
+        created_at=now,
+        concluded_at=now,
+    )
+
+@router.post("/projects/{project_id}/expansion-recovery")
+def expansion_recovery(project_id: str, body: ConcludeRequest):
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        project = check_project_active(conn, project_id)
+        return request_expansion_recovery(conn, project, body.description)
 
 
 @router.post("/projects/{project_id}/reopen", response_model=ReopenResponse)

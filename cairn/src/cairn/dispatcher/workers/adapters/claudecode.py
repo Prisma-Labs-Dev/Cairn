@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from cairn.dispatcher.usage_parsers import json_events
+
 from cairn.dispatcher.config import WorkerConfig
 from cairn.dispatcher.workers.base import DriverResult, SeedSessionDriver
 from cairn.dispatcher.workers.health import HealthResult, http_ping, proxies_from_env
@@ -44,6 +46,7 @@ class ClaudeCodeDriver(SeedSessionDriver):
                 session,
                 "--dangerously-skip-permissions",
                 "-p",
+                "--output-format", "stream-json", "--verbose",
                 "--",
                 prompt,
             ],
@@ -57,6 +60,17 @@ class ClaudeCodeDriver(SeedSessionDriver):
             session,
             "--dangerously-skip-permissions",
             "-p",
+            "--output-format", "stream-json", "--verbose",
             "--",
             prompt,
         ]
+
+    def extract_response_text(self, stdout: str, stderr: str) -> str:
+        events = json_events(stdout)
+        results = [event for event in events if event.get("type") == "result"]
+        if results:
+            return results[-1].get("result", "") if isinstance(results[-1].get("result", ""), str) else ""
+        assistants = [event.get("message") for event in events if event.get("type") == "assistant" and isinstance(event.get("message"), dict)]
+        if assistants:
+            return "\n".join(block["text"] for block in assistants[-1].get("content", []) if block.get("type") == "text" and isinstance(block.get("text"), str))
+        return "" if events and any(event.get("type") in ("system", "result", "assistant") for event in events) else stdout

@@ -1,14 +1,15 @@
 ---
 name: tsec-actions
-description: 在 tsec CTF/智能渗透比赛中，当需要对某道题提交 flag 时使用
+description: Use when submitting a challenge flag in an authorized TSEC CTF or intelligent penetration-testing competition.
 ---
 
-## 用法
+## Usage
 
-* 直接使用 `curl` 调 API，TSEC_SERVER_HOST 和 TSEC_AGENT_TOKEN 已存在于环境变量
-* flag 统一都是 `flag{...}` 格式
+- Call the API directly with `curl`. `TSEC_SERVER_HOST` and `TSEC_AGENT_TOKEN` are already
+  provided as environment variables.
+- Flags use the `flag{...}` format.
 
-提交 flag：
+Submit a flag:
 
 ```bash
 curl -X POST "http://${TSEC_SERVER_HOST}/api/submit" \
@@ -17,7 +18,7 @@ curl -X POST "http://${TSEC_SERVER_HOST}/api/submit" \
   -d '{"code": "<challenge_code>", "flag": "<flag>"}'
 ```
 
-## 规则
+## Rules
 
-- 只在高置信时提交 flag，不要把它当成爆破接口
-- 提交 flag 以接口返回结果为准，不要自行假设提交成功
+- Submit only when confidence is high. Do not use the submission endpoint for brute force.
+- Use the API response to determine whether submission succeeded. Do not assume success.

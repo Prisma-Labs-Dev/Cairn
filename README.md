@@ -3,11 +3,11 @@
 <img src="./README/banner.png" alt="Cairn Banner"/>
 
 # Cairn
-### More Than Just AI Penetration Testing — Towards General State-Space Search
+### General state-space search, first tested in penetration testing
 
 <p>
   <a href="https://zc.tencent.com/hackathon" target="_blank" rel="noopener noreferrer">
-    <img src="./README/tencent.png" alt="Tencent" height="55" />
+    <img src="./README/tencent.png" alt="Tencent Security Testing" height="55" />
   </a>
   <a href="https://zc.tencent.com/hackathon" target="_blank" rel="noopener noreferrer">
     <img src="./README/tch.png" alt="TCH" height="55" />
@@ -44,6 +44,29 @@ See [Staged workflows](docs/workflows.md) for the creation flow, a research-to-m
 example, API usage, file retention, and current limits. Existing single-project runs still work.
 For agents, [JSON/YAML creation](docs/agent-creation.md) supports goal-only projects and
 stage-only workflow definitions. Titles and starting context are optional.
+Expandable stages can discover new goals for Cairn to execute before later stages continue.
+[Runtime controls](docs/runtime-controls.md) expose concurrency limits, connected dispatchers,
+and worker capacity in the UI without editing YAML.
+Optional [independent verification](docs/verification.md) requires a fresh agent review before
+accepting completion. It is off by default. The separate [Token usage](docs/usage.md) page
+shows CLI-reported counters and their coverage. Workflow [Pause, Resume, and recoverable
+Trash](docs/workflow-management.md) preserve results and history.
+
+## Documentation
+
+- [Core changes](docs/core-changes.md) records changes to the original engine against upstream
+  `8e7e0ea`, separate from the workflow extensions.
+- [Server protocol](docs/specs/server-protocol.md) and [dispatcher design](docs/specs/dispatcher-design.md)
+  describe current behavior in English.
+- [Workflow and artifact guide](docs/workflows.md), [agent creation](docs/agent-creation.md),
+  and [runtime controls](docs/runtime-controls.md) cover the fork's user-facing additions.
+- [Independent verification](docs/verification.md), [token usage](docs/usage.md), and
+  [workflow management](docs/workflow-management.md) document completion review, accounting,
+  and recoverable deletion.
+- [Benchmark procedure](docs/benchmarks.md) defines evaluation setup; no live pilot results
+  are available yet.
+- [Worker container](container/README.md) explains the image and its environment instructions.
+- [Current status and limits](STATUS.md) records verification and outstanding boundaries.
 
 <p align="center">
   <a href="https://www.bilibili.com/video/BV1a8R5BhEVi/" target="_blank" rel="noopener noreferrer">
@@ -73,9 +96,9 @@ The engine is built on a **Blackboard Architecture** with an explicit fact-inten
 
 The graph grows from `origin` toward `goal`. Every new Fact is a stepping stone; every Intent is a step into the unknown.
 
-Agent Workers run an OODA loop — Observe the full graph, Orient to the current state, Decide on next intents, Act to explore — and write their findings back as new Facts. Workers have no fixed roles. Tasks are generated at runtime from the graph's current state, not from predefined job descriptions.
+Agent workers perform the tasks chosen by the dispatcher from the current graph: observe findings, decide on exploration, and record new facts. Workers have no fixed roles. Their supported task types, priority, and concurrency come from configuration. Reason and explore read the current project graph; earlier workflow stages are optional historical context.
 
-Agents coordinate exclusively through the shared board (Stigmergy). No direct communication. No information silos.
+Agents coordinate through the shared board. The dispatcher manages task claims and process execution. Workflow stages can also share working files and inspect completed earlier stages on demand.
 
 ## Cairn in Action
 
@@ -84,13 +107,17 @@ https://github.com/user-attachments/assets/e557b1ac-dda4-41cb-87dd-9d56dbf05133
 
 ## How It Works
 
-Three task types, all executed by the same Worker:
+The original engine has three task types, selected from the configured worker pool:
 
 | Task | What it does | Output |
 |------|-------------|--------|
 | **Bootstrap** | At project start, attempts to solve the problem directly | Fact + possible Complete |
 | **Reason** | Reads the full graph: is the goal met? What should be explored next? | Complete / new Intents / no-op |
-| **Explore** | Claims one Intent, executes the exploration, reports findings | One Fact |
+| **Explore** | Executes one intent claimed by the dispatcher and reports findings | One Fact |
+
+With verification enabled, producer completion becomes a pending claim. A separate fresh
+review uses a reason-capable worker and accepts or rejects that claim before the goal can
+complete. With verification off, completion retains its original behavior.
 
 System architecture:
 
@@ -117,13 +144,16 @@ System architecture:
      └──────────────────┘     └─────────────────────┘
 ```
 
-**Cairn Server** maintains graph consistency only.
+**Cairn Server** stores the graph and enforces claims, leases, and project state. This fork also stores workflow dependencies, artifacts, runtime policy, completion reviews, and sanitized usage records.
 
-**Cairn Dispatcher** reads the graph, schedules tasks, spins up and tears down worker containers, and is the sole writer to the protocol. Each project gets its own Worker Container; multiple Agent Workers run concurrently inside it. Agent Workers only receive a prompt and return structured output.
+**Cairn Dispatcher** reads the graph, schedules tasks, spins up and tears down worker containers, and is the sole writer to the protocol. Each standalone project gets its own worker container; workflow stages share a workflow container. Multiple agent workers can run concurrently inside it. Agent Workers only receive a prompt and return structured output.
 
 Workers can also run directly on the dispatcher host instead of in per-project containers — **local mode**, no Docker required. See [Local mode](#local-mode-no-docker) below.
 
-Supported worker backends: **Claude Code**, **Codex**, and **Pi**.
+Supported worker backends: **Claude Code**, **Codex**, and **Pi**. Claude Code and Codex
+use structured CLI event output; drivers extract the final task result and record reported
+usage separately. Each dispatcher must use its own durable usage outbox path, configurable
+with `CAIRN_USAGE_OUTBOX`; sharing one path is rejected at startup. See [Token usage](docs/usage.md).
 
 ## Results
 
@@ -154,7 +184,7 @@ Supported worker backends: **Claude Code**, **Codex**, and **Pi**.
 
 ### Pull required images
  
-Both setup methods require the worker container image:
+Container execution requires the worker image. Skip this step for host-local execution:
  
 ```bash
 docker pull --platform=linux/amd64 ghcr.io/oritera/cairn-worker-container:latest
@@ -178,7 +208,7 @@ docker pull ghcr.io/astral-sh/uv:python3.13-trixie
 docker compose up --build
 ```
  
-This starts `cairn-server` on port `8000` and `cairn-dispatcher` once the server passes its health check. The dispatcher mounts `dispatch.yaml` from the project root and connects to Docker via the host socket. Data is persisted to `./datas/cairn/`.
+This starts `cairn-server` on port `8000` and `cairn-dispatcher` once the server passes its health check. The dispatcher mounts `dispatch.yaml` from the project root and connects to Docker via the host socket. Server data is persisted to `./datas/cairn/`. The dispatcher's usage outbox and session-accounting baselines are persisted separately under `./datas/dispatcher/`.
  
 ### Manual
  
@@ -207,7 +237,7 @@ uv run --project cairn cairn serve
 uv run --project cairn cairn dispatch --config dispatch.yaml
 ```
 
-Local mode is selected by `runtime.execution: local` (see `dispatch.local.example.yaml`). On startup the dispatcher checks each configured worker CLI is installed and runnable, and reminds you they must already be logged in. Each project gets an isolated working directory under `local.workspace_root` (default: the dispatcher's current directory). Run the dispatcher directly on the host — not inside Docker — since the agents run with your user's permissions and no sandbox.
+Local mode is selected by `runtime.execution: local` (see `dispatch.local.example.yaml`). On startup the dispatcher checks each configured worker CLI is installed and runnable, and reminds you they must already be logged in. Each standalone project gets a separate working directory under `local.workspace_root` (default: the dispatcher's current directory). Workflow stages share a workflow directory. Optional Codex `model` and `reasoning_effort` fields select a model explicitly; omitting them preserves host defaults. Run the dispatcher directly on the host — not inside Docker — since the agents run with your user's permissions and no sandbox.
 
 ### Tests
 

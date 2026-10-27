@@ -11,6 +11,7 @@ from cairn.dispatcher.runtime.cancellation import TaskCancellation
 from cairn.dispatcher.runtime.containers import ContainerManager
 from cairn.dispatcher.runtime.heartbeat import HeartbeatLease
 from cairn.dispatcher.runtime.process import ProcessResult
+from cairn.dispatcher.usage_reporting import start_attempt, finish_attempt, UsageOutboxOwnershipError
 
 PROCESS_COMMUNICATE_GRACE_SECONDS = 15
 LOG_PREVIEW_LIMIT = 1200
@@ -80,6 +81,8 @@ def run_worker_process(
     timeout_seconds: int,
     lease: HeartbeatLease | None = None,
     cancellation: TaskCancellation | None = None,
+    usage_client=None,
+    usage_project_id: str | None = None,
 ) -> ProcessResult:
     LOG.info(
         "starting container exec container=%s worker=%s phase=%s timeout=%ss",
@@ -88,24 +91,35 @@ def run_worker_process(
         phase,
         timeout_seconds,
     )
-    process = container_manager.build_exec_process(
-        container_name,
-        dict(worker.env),
-        argv,
-        timeout_seconds=timeout_seconds,
-    )
-    process.start()
-    if lease is not None:
-        lease.attach_process(process)
-    if cancellation is not None:
-        cancellation.attach_process(process)
+    telemetry = None
     try:
-        return process.communicate(timeout=communicate_timeout(timeout_seconds))
+        telemetry = start_attempt(usage_client, usage_project_id, worker, phase, argv)
+    except UsageOutboxOwnershipError:
+        raise
+    except Exception:
+        LOG.error("usage attempt initialization failed; worker execution continues")
+    result = None
+    error_status = "start_failed"
+    try:
+        process = container_manager.build_exec_process(container_name, dict(worker.env), argv, timeout_seconds=timeout_seconds)
+        process.start()
+        error_status = "process_error"
+        if lease is not None:
+            lease.attach_process(process)
+        if cancellation is not None:
+            cancellation.attach_process(process)
+        result = process.communicate(timeout=communicate_timeout(timeout_seconds))
+        error_status = None
+        return result
     finally:
         if lease is not None:
             lease.attach_process(None)
         if cancellation is not None:
             cancellation.attach_process(None)
+        try:
+            finish_attempt(telemetry, usage_client, worker, argv, result, error_status)
+        except Exception:
+            LOG.error("usage finalization failed; worker result is unchanged")
 
 
 def project_allows_conclude_fallback(client: CairnClient, project_id: str, *, worker_name: str, intent_id: str) -> bool:

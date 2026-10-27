@@ -56,14 +56,24 @@ def get_project_or_404(conn: sqlite3.Connection, project_id: str) -> sqlite3.Row
 
 
 def check_project_active(conn: sqlite3.Connection, project_id: str) -> sqlite3.Row:
+    if not conn.in_transaction:
+        conn.execute("BEGIN IMMEDIATE")
     row = get_project_or_404(conn, project_id)
+    from cairn.server.workflow_management import require_project_writable
+    require_project_writable(conn, row)
     if row["status"] != "active":
         raise HTTPException(403, f"Project is {row['status']}")
+    if row["pending_review_id"] is not None:
+        raise HTTPException(409, "Project is awaiting independent review")
     return row
 
 
 def check_project_hint_writable(conn: sqlite3.Connection, project_id: str) -> sqlite3.Row:
+    if not conn.in_transaction:
+        conn.execute("BEGIN IMMEDIATE")
     row = get_project_or_404(conn, project_id)
+    from cairn.server.workflow_management import require_project_writable
+    require_project_writable(conn, row)
     if row["status"] not in ("active", "stopped", "completed"):
         raise HTTPException(403, f"Project is {row['status']}")
     return row
@@ -204,6 +214,8 @@ def project_meta_from_row(row: sqlite3.Row) -> ProjectMeta:
         reason=project_reason_from_row(row),
         workflow_id=row["workflow_id"],
         workflow_stage_id=row["workflow_stage_id"],
+        verification_enabled=bool(row["verification_enabled"]),
+        pending_review_id=row["pending_review_id"],
     )
 
 

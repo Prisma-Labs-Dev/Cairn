@@ -30,6 +30,33 @@ def normalize_optional_text(value: str | None) -> str:
     return value.strip() if value is not None else ""
 
 
+class GoalExpansion(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    max_goals: int = Field(default=16, ge=1, le=64, strict=True)
+
+
+class GeneratedGoalDefinition(BaseModel):
+    """Worker proposals describe independent goals, never executable workflows."""
+    model_config = {"extra": "forbid"}
+
+    goal: str = Field(min_length=1, max_length=8_000, pattern=r"\S")
+    id: str | None = Field(default=None, pattern=r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
+    title: str | None = Field(default=None, max_length=200)
+    kind: Literal["research", "work", "synthesis", "review"] = "work"
+    bootstrap_enabled: bool = Field(default=True, strict=True)
+    artifacts: list[ArtifactRequirement] = Field(default_factory=list, max_length=32)
+
+    @model_validator(mode="after")
+    def normalize_goal(self):
+        self.goal = self.goal.strip()
+        self.title = normalize_optional_text(self.title) or derive_title(self.goal)
+        paths = [_artifact_collision_key(artifact.path) for artifact in self.artifacts]
+        if len(set(paths)) != len(paths):
+            raise ValueError("generated goal artifact paths must be unique")
+        return self
+
+
 class Settings(BaseModel):
     intent_timeout: int = Field(ge=5)
     reason_timeout: int = Field(ge=5)
@@ -73,6 +100,8 @@ class ProjectMeta(BaseModel):
     title: str
     status: Literal["active", "stopped", "completed"]
     bootstrap_enabled: bool
+    verification_enabled: bool = False
+    pending_review_id: str | None = None
     created_at: str
     reason: ProjectReason | None = None
     workflow_id: str | None = None
@@ -92,11 +121,13 @@ class ProjectSummary(ProjectMeta):
 
 
 class ProjectDetail(BaseModel):
+    workflow_deleted_at: str | None = None
     project: ProjectMeta
     facts: list[Fact]
     intents: list[Intent]
     hints: list[Hint]
     required_artifacts: list[ArtifactRequirement] = Field(default_factory=list)
+    expansion: GoalExpansion | None = None
 
 
 class CreateHintInline(BaseModel):
@@ -119,6 +150,7 @@ class CreateProjectRequest(BaseModel):
     origin: str | None = None
     goal: str = Field(min_length=1, pattern=r"\S")
     bootstrap_enabled: bool = True
+    verification_enabled: bool = Field(default=False, strict=True)
     hints: list[CreateHintInline] | None = None
 
     @field_validator("goal")
@@ -221,6 +253,9 @@ class CompleteRequest(BaseModel):
     from_: list[str] = Field(alias="from", min_length=1)
     description: str
     worker: str
+    producer_agent_id: str | None = Field(default=None, min_length=1, max_length=200, pattern=r"\S")
+    producer_session_id: str | None = Field(default=None, min_length=1, max_length=200, pattern=r"\S")
+    goals: list[GeneratedGoalDefinition] | None = Field(default=None, max_length=64)
 
     model_config = {"populate_by_name": True}
 
@@ -324,6 +359,8 @@ class WorkflowStageDefinition(BaseModel):
     depends_on: list[str] = Field(default_factory=list)
     bootstrap_enabled: bool = True
     artifacts: list[ArtifactRequirement] = Field(default_factory=list, max_length=32)
+    expansion: GoalExpansion | None = None
+    verification_enabled: bool = Field(default=False, strict=True)
 
     @field_validator("layer")
     @classmethod
@@ -406,6 +443,7 @@ class WorkflowMeta(BaseModel):
     origin: str
     status: Literal["active", "stopped", "completed"]
     created_at: str
+    deleted_at: str | None = None
 
 
 class WorkflowSummary(WorkflowMeta):
@@ -419,6 +457,7 @@ class StageCompletion(BaseModel):
     description: str
     from_: list[str] = Field(alias="from")
     completed_at: str
+    goals: list[GeneratedGoalDefinition] | None = None
 
     model_config = {"populate_by_name": True}
 
@@ -433,6 +472,7 @@ class StageHandoff(BaseModel):
 
 
 class WorkflowStage(WorkflowStageDefinition):
+    pending_review_id: str | None = None
     status: Literal["blocked", "active", "stopped", "completed"]
     project_id: str | None
     completion: StageCompletion | None
@@ -441,6 +481,9 @@ class WorkflowStage(WorkflowStageDefinition):
     artifact_recovery_attempts: int = Field(default=0, ge=0)
     artifact_error: str | None = None
     history_index_url: str | None = None
+    generated_by_stage_id: str | None = None
+    expansion_recovery_attempts: int = Field(default=0, ge=0)
+    expansion_error: str | None = None
 
 
 class WorkflowDetail(BaseModel):

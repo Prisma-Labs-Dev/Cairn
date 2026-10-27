@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS workflows (
     title TEXT NOT NULL,
     origin TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'active',
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -23,7 +24,40 @@ CREATE TABLE IF NOT EXISTS settings (
     reason_timeout INTEGER NOT NULL DEFAULT 15
 );
 
+CREATE TABLE IF NOT EXISTS usage_reporters (
+    reporter_id TEXT PRIMARY KEY, last_seen TEXT NOT NULL,
+    pending_attempts INTEGER NOT NULL, running_attempts INTEGER NOT NULL, rejected_attempts INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS usage_attempts (
+    attempt_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, workflow_id TEXT,
+    worker_type TEXT NOT NULL, phase TEXT NOT NULL, started_at TEXT NOT NULL,
+    coverage TEXT NOT NULL, payload_hash TEXT NOT NULL, payload_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS usage_attempts_by_time ON usage_attempts(started_at);
+CREATE INDEX IF NOT EXISTS usage_attempts_by_project_time ON usage_attempts(project_id,started_at);
+CREATE TABLE IF NOT EXISTS usage_readings (
+    attempt_id TEXT NOT NULL REFERENCES usage_attempts(attempt_id), position INTEGER NOT NULL,
+    model TEXT, model_source TEXT NOT NULL, input_tokens INTEGER, cached_input_tokens INTEGER,
+    uncached_input_tokens INTEGER, cache_write_input_tokens INTEGER, output_tokens INTEGER,
+    PRIMARY KEY(attempt_id,position)
+);
+
 INSERT OR IGNORE INTO settings (rowid, intent_timeout, reason_timeout) VALUES (1, 15, 15);
+
+CREATE TABLE IF NOT EXISTS runtime_settings (
+    max_workers INTEGER,
+    max_running_projects INTEGER,
+    max_project_workers INTEGER,
+    revision INTEGER NOT NULL DEFAULT 0
+);
+INSERT OR IGNORE INTO runtime_settings (rowid, revision) VALUES (1, 0);
+
+CREATE TABLE IF NOT EXISTS runtime_dispatchers (
+    id TEXT PRIMARY KEY,
+    last_seen TEXT NOT NULL,
+    report_json TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS projects (
     id TEXT PRIMARY KEY,
@@ -49,6 +83,9 @@ CREATE TABLE IF NOT EXISTS workflow_stages (
     artifact_error TEXT,
     history_stage_ids_json TEXT NOT NULL DEFAULT '[]',
     context_version INTEGER NOT NULL DEFAULT 0,
+    generated_by_stage_id TEXT,
+    expansion_recovery_attempts INTEGER NOT NULL DEFAULT 0,
+    expansion_error TEXT,
     PRIMARY KEY (workflow_id, id)
 );
 
@@ -134,10 +171,19 @@ def configure(path: Path) -> None:
     _db_path.parent.mkdir(parents=True, exist_ok=True)
     with get_conn() as conn:
         conn.executescript(SCHEMA)
+        _ensure_workflow_columns(conn)
         _ensure_project_columns(conn)
         _ensure_workflow_stage_columns(conn)
+        from cairn.server.verification_service import ensure_schema
+        ensure_schema(conn)
         from cairn.server.workflow_context import migrate_legacy_stage_contexts
         migrate_legacy_stage_contexts(conn)
+
+
+def _ensure_workflow_columns(conn: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(workflows)")}
+    if "deleted_at" not in columns:
+        conn.execute("ALTER TABLE workflows ADD COLUMN deleted_at TEXT")
 
 
 def _ensure_project_columns(conn: sqlite3.Connection) -> None:
@@ -165,6 +211,12 @@ def _ensure_workflow_stage_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE workflow_stages ADD COLUMN history_stage_ids_json TEXT NOT NULL DEFAULT '[]'")
     if "context_version" not in columns:
         conn.execute("ALTER TABLE workflow_stages ADD COLUMN context_version INTEGER NOT NULL DEFAULT 0")
+    if "generated_by_stage_id" not in columns:
+        conn.execute("ALTER TABLE workflow_stages ADD COLUMN generated_by_stage_id TEXT")
+    if "expansion_recovery_attempts" not in columns:
+        conn.execute("ALTER TABLE workflow_stages ADD COLUMN expansion_recovery_attempts INTEGER NOT NULL DEFAULT 0")
+    if "expansion_error" not in columns:
+        conn.execute("ALTER TABLE workflow_stages ADD COLUMN expansion_error TEXT")
 
 
 @contextmanager
