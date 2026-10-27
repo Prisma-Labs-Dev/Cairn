@@ -141,7 +141,7 @@ concluded_at    # 结论时间，null 表示尚无结论
 
 `creator` 在创建时写入，标识谁洞察局势提出了这个探索方向，不可变。`worker` 可为空；若创建时同时认领，则 `worker` 必须等于 `creator`，并写入首个 `last_heartbeat_at`。
 
-请求体里的文本字段（如 `title`、`content`、`description`、`creator`、`worker`、`trigger`）以及 `from` 中的 Fact id，服务端都会先做首尾空白裁剪；裁剪后若为空，则返回 `422`。
+请求体里的文本字段（如 `content`、`description`、`creator`、`worker`、`trigger`）以及 `from` 中的 Fact id，服务端都会先做首尾空白裁剪；裁剪后若为空，则返回 `422`。本分支的创建接口例外：`title` 和 `origin` 可省略、为 `null` 或空白；标题由目标生成，未提供的起点保持为空。详见 [Agent creation](../agent-creation.md)。
 
 如果消费者采用 `bootstrap` 约定，常见做法是使用固定 `creator`，例如 `dispatcher.bootstrap`，以便在图上与普通探索 intent 清晰区分；这只是消费者约定，不是服务端约束。
 
@@ -244,6 +244,8 @@ Body：
 #### POST /projects
 
 创建新项目。`origin` 和 `goal` 写入 `facts` 作为特殊 Fact。`hints` 可选。`bootstrap_enabled` 可选，默认为 `true`；为 `false` 时消费者跳过 bootstrap。即使为 `true`，消费者没有 bootstrap 能力时也可直接进入 reason。
+
+本分支只要求非空 `goal`；最小请求为 `{"goal":"Describe the result to achieve."}`。`title` 和 `origin` 是可选元数据。JSON/YAML CLI、工作流创建以及 `PATCH /projects/{id}/metadata`、`PATCH /workflows/{id}/metadata` 的当前说明见 [Agent creation](../agent-creation.md)，机器可读 schema 见 `/openapi.json`。
 
 Body：
 

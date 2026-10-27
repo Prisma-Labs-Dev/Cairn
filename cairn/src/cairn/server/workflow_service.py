@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from cairn.server.artifact_service import list_artifacts
 from cairn.server.models import (
     CreateWorkflowRequest, StageCompletion, WorkflowDetail,
-    WorkflowMeta, WorkflowStage, WorkflowStageDefinition, WorkflowSummary,
+    WorkflowMeta, WorkflowStage, WorkflowStageDefinition, WorkflowSummary, UpdateMetadataRequest,
 )
 from cairn.server.services import (
     clear_project_reason, next_hint_id, next_project_id, utcnow,
@@ -183,3 +183,18 @@ def set_workflow_status(conn: sqlite3.Connection, workflow_id: str, status: str)
 def require_standalone_project(project: sqlite3.Row) -> None:
     if project["workflow_id"] is not None:
         raise HTTPException(409, "This project belongs to a workflow; control it through the workflow")
+
+
+def update_workflow_metadata(
+    conn: sqlite3.Connection, workflow_id: str, body: UpdateMetadataRequest,
+) -> WorkflowDetail:
+    workflow = get_workflow(conn, workflow_id)
+    if workflow["status"] == "completed":
+        raise HTTPException(409, "Completed workflow metadata cannot change")
+    if body.title is not None:
+        conn.execute("UPDATE workflows SET title = ? WHERE id = ?", (body.title, workflow_id))
+    if body.origin is not None:
+        # Existing stage origin facts retain the context with which they started.
+        # Only subsequently unlocked stages read the workflow's updated origin.
+        conn.execute("UPDATE workflows SET origin = ? WHERE id = ?", (body.origin, workflow_id))
+    return workflow_detail(conn, workflow_id)

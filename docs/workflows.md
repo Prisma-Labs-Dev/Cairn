@@ -23,10 +23,13 @@ Start the server and dispatcher with the normal Cairn instructions in the README
 For local execution, the configured worker CLI must already be installed and signed in.
 No new model account or provider is required for workflows.
 
-Use **New workflow** in the UI. Give the workflow a starting context, then add stages
-with goals, output files, and prerequisites. A stage can specify a goal, required artifacts,
-or both. Open a stage's project to inspect its fact graph,
+Use **New workflow** in the UI and describe the stage goals or output files. Workflow and
+stage titles and starting context are optional. Add prerequisites to chain stages or join
+branches. A stage can specify a goal, required artifacts, or both. Open a stage's project to inspect its fact graph,
 add hints, or read its findings. Use workflow stop/resume to control the whole run.
+
+Agents can create the same definitions from JSON or YAML. See [Agent creation](agent-creation.md)
+for minimal requests, CLI commands, schemas, and metadata editing.
 
 The API accepts the same definition at `POST /workflows`. For example, one stage can find
 the relevant item and the next can use that finding to produce a specified output:

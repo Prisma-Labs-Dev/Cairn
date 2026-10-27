@@ -13,6 +13,7 @@ single-goal exploration engine. Upstream base: `oritera/Cairn` at `8e7e0ea`.
 - Automatic artifact recovery pauses the workflow after three unsuccessful attempts.
 - Durable binary artifact downloads, hashes, sizes, and retained workflow working files.
 - Workflow creation, progress, completion summaries, stop/resume, and stage graph navigation.
+- Goal-only project creation, JSON/YAML workflow files, and agent-editable optional metadata.
 
 ## Run
 

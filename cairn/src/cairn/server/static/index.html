@@ -441,7 +441,7 @@
             <span class="text-xs text-slate-500" x-text="workflow.workflow.status === 'completed' ? 'Workflow complete' : 'Each stage waits for all its prerequisites'"></span>
           </div>
           <div class="h-2 bg-slate-100 rounded-full mt-3 overflow-hidden"><div class="h-full bg-brand-500 rounded-full transition-all" :style="`width:${workflowProgress()}%`"></div></div>
-          <details class="mt-4 text-sm text-slate-600"><summary class="cursor-pointer text-xs font-medium text-slate-500">Starting context</summary><p class="mt-2 whitespace-pre-wrap break-words" x-text="workflow.workflow.origin"></p></details>
+          <details x-show="workflow.workflow.origin" class="mt-4 text-sm text-slate-600"><summary class="cursor-pointer text-xs font-medium text-slate-500">Starting context</summary><p class="mt-2 whitespace-pre-wrap break-words" x-text="workflow.workflow.origin"></p></details>
           <p x-show="workflow.workflow.status === 'stopped'" class="text-xs text-amber-700 mt-3">Work is paused. Completed goals and findings are retained.</p>
         </section>
         <template x-for="(stage, index) in workflow.stages" :key="stage.id">
@@ -967,21 +967,12 @@
   <section role="dialog" aria-modal="true" aria-labelledby="new-workflow-title" class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-full flex flex-col border border-slate-200 overflow-hidden" @click.stop>
     <header class="p-5 border-b border-slate-100 shrink-0">
       <h2 id="new-workflow-title" class="font-semibold text-slate-700">New workflow</h2>
-      <p class="text-xs text-slate-500 mt-1">Set a goal for each stage. A stage starts after all of its prerequisites finish.</p>
+      <p class="text-xs text-slate-500 mt-1">What should each stage achieve?</p>
     </header>
     <div class="p-5 space-y-5 overflow-y-auto flex-1">
-      <div class="space-y-3">
-        <label class="block text-xs font-medium text-slate-500">Workflow title<input x-model="newWorkflow.title" placeholder="An investigation of X" class="block mt-1 w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-100"></label>
-        <label class="block text-xs font-medium text-slate-500">Starting context<textarea x-model="newWorkflow.origin" placeholder="What is known, what materials are available, and what should the workflow produce?" rows="3" class="block mt-1 w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-100"></textarea></label>
-      </div>
-      <div class="flex flex-wrap justify-between items-center gap-2"><h3 class="text-sm font-semibold text-slate-700">Stages</h3><div class="flex flex-wrap gap-3"><button @click="useArtifactWorkflowExample()" class="text-xs text-brand-600 hover:text-brand-700">Use file workflow example</button><button @click="useResearchWorkflowExample()" class="text-xs text-brand-600 hover:text-brand-700">Use research example</button></div></div>
       <template x-for="(stage, index) in newWorkflow.stages" :key="stage.id">
         <section class="rounded-xl border border-slate-200 p-4 space-y-3 bg-slate-50/50">
           <div class="flex items-center justify-between"><span class="text-xs font-semibold text-slate-500" x-text="`Stage ${index + 1}`"></span><button @click="removeWorkflowStage(stage.id)" :disabled="newWorkflow.stages.length === 1" :aria-label="`Remove stage ${index + 1}`" class="text-xs text-slate-400 hover:text-rose-600 disabled:opacity-30">Remove</button></div>
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <label class="block text-xs text-slate-500 sm:col-span-2">Title<input x-model="stage.title" :aria-label="`Stage ${index + 1} title`" placeholder="Investigate the topic" class="block w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-brand-100"></label>
-            <label class="block text-xs text-slate-500">Type<select x-model="stage.kind" :aria-label="`Stage ${index + 1} type`" class="block w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white"><option value="research">Research</option><option value="work">Work</option><option value="synthesis">Synthesis</option><option value="review">Review</option></select></label>
-          </div>
           <label class="block text-xs text-slate-500"><span x-text="stage.artifacts.length ? 'Goal, optional when output files are specified' : 'Goal'"></span><textarea x-model="stage.goal" :aria-label="`Stage ${index + 1} goal`" placeholder="Describe the result that must exist before this stage is complete." rows="2" class="block w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-brand-100"></textarea></label>
           <section class="pt-2">
             <div class="flex items-center justify-between gap-2"><h4 class="text-xs font-medium text-slate-500">Output files, optional</h4><button @click="stage.artifacts.push({path:'',label:''})" class="text-xs text-brand-600 hover:text-brand-700">+ Add output file</button></div>
@@ -996,21 +987,35 @@
             </template>
             <p x-show="stage.artifacts.length" class="text-[11px] text-slate-400 mt-2">Use relative file paths in the shared workspace. Every listed file is required before this stage can finish. Each stage must use distinct output paths; it can read input files from its prerequisites.</p>
           </section>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <label class="block text-xs text-slate-500">Layer label, optional<input x-model="stage.layer" :aria-label="`Stage ${index + 1} layer`" placeholder="Evidence, drafting, validation..." class="block w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white"></label>
-            <label class="flex items-center gap-2 text-xs text-slate-500 sm:pt-5"><input type="checkbox" x-model="stage.bootstrap_enabled" class="rounded border-slate-300">Try the stage goal directly first</label>
-          </div>
-          <fieldset class="pt-3 border-t border-slate-200"><legend class="text-xs font-medium text-slate-500">Prerequisite stages</legend>
-            <p x-show="index === 0" class="text-xs text-slate-400">Starts from the workflow context.</p>
+          <fieldset x-show="index > 0" class="pt-3 border-t border-slate-200"><legend class="text-xs font-medium text-slate-500">Starts after</legend>
             <div class="flex flex-wrap gap-x-4 gap-y-2">
-              <template x-for="prerequisite in newWorkflow.stages.slice(0, index)" :key="prerequisite.id"><label class="inline-flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" :value="prerequisite.id" x-model="stage.depends_on" class="rounded border-slate-300"><span x-text="prerequisite.title || 'Untitled stage'"></span></label></template>
+              <template x-for="prerequisite in newWorkflow.stages.slice(0, index)" :key="prerequisite.id"><label class="inline-flex items-center gap-2 text-xs text-slate-600 min-w-0"><input type="checkbox" :value="prerequisite.id" x-model="stage.depends_on" class="rounded border-slate-300 shrink-0"><span class="break-words" x-text="workflowDraftStageTitle(prerequisite)"></span></label></template>
             </div>
             <p x-show="index > 0" class="text-[11px] text-slate-400 mt-2">Select several to join branches. Select none to run independently.</p>
           </fieldset>
+          <details class="border-t border-slate-200 pt-3">
+            <summary class="text-xs text-slate-500 cursor-pointer">Optional stage settings</summary>
+            <div class="space-y-3 mt-3">
+              <label class="block text-xs text-slate-500">Stage title, optional<input x-model="stage.title" :aria-label="`Stage ${index + 1} title, optional`" placeholder="Leave blank for an automatic title" class="block w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-brand-100"></label>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label class="block text-xs text-slate-500">Type<select x-model="stage.kind" :aria-label="`Stage ${index + 1} type`" class="block w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white"><option value="research">Research</option><option value="work">Work</option><option value="synthesis">Synthesis</option><option value="review">Review</option></select></label>
+                <label class="block text-xs text-slate-500">Layer label, optional<input x-model="stage.layer" :aria-label="`Stage ${index + 1} layer`" placeholder="Evidence, drafting, validation..." class="block w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white"></label>
+              </div>
+              <label class="flex items-center gap-2 text-xs text-slate-500"><input type="checkbox" x-model="stage.bootstrap_enabled" class="rounded border-slate-300">Try the stage goal directly first</label>
+            </div>
+          </details>
         </section>
       </template>
       <button @click="addWorkflowStage()" class="w-full py-2.5 rounded-xl border border-dashed border-brand-200 text-sm text-brand-600 hover:bg-brand-50">+ Add stage</button>
-      <p class="text-xs text-slate-500">Earlier work remains available when needed. Stages share a retained workspace for files and drafts.</p>
+      <details class="border-t border-slate-100 pt-3">
+        <summary class="text-xs text-slate-500 cursor-pointer">Optional details and examples</summary>
+        <div class="space-y-3 mt-3">
+          <label class="block text-xs font-medium text-slate-500">Workflow title, optional<input x-model="newWorkflow.title" placeholder="Leave blank for an automatic title" class="block mt-1 w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-100"></label>
+          <label class="block text-xs font-medium text-slate-500">Starting context, optional<textarea x-model="newWorkflow.origin" placeholder="Add any background or materials the stages should start with." rows="3" class="block mt-1 w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-100"></textarea></label>
+          <div class="flex flex-wrap gap-3"><button @click="useArtifactWorkflowExample()" class="text-xs text-brand-600 hover:text-brand-700">Use file workflow example</button><button @click="useResearchWorkflowExample()" class="text-xs text-brand-600 hover:text-brand-700">Use research example</button></div>
+          <p class="text-xs text-slate-500">Earlier work remains available when needed. Stages share a retained workspace for files and drafts.</p>
+        </div>
+      </details>
       <p x-show="workflowFormError" x-text="workflowFormError" role="alert" class="text-sm text-rose-600 whitespace-pre-wrap"></p>
     </div>
     <footer class="p-4 border-t border-slate-100 flex justify-end gap-2 shrink-0">
@@ -1021,16 +1026,19 @@
 </div>
 
 <!-- New Project -->
-<div x-show="showNewProject" x-cloak class="fixed inset-0 z-50 flex items-center justify-center overlay" @click.self="showNewProject = false">
-  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 border border-slate-200/60" @click.stop>
-    <h3 class="text-base font-semibold text-slate-700 mb-4">New Project</h3>
+<div x-show="showNewProject" x-cloak class="fixed inset-0 z-50 flex items-center justify-center overlay p-3" @click.self="showNewProject = false">
+  <div role="dialog" aria-modal="true" aria-labelledby="new-project-title" class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-full overflow-y-auto p-6 border border-slate-200/60" @click.stop>
+    <h3 id="new-project-title" class="text-base font-semibold text-slate-700 mb-4">New project</h3>
     <div class="space-y-3">
-      <input x-model="newProject.title" placeholder="Project title" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400 transition placeholder:text-slate-300">
-      <textarea x-model="newProject.origin" placeholder="Origin — starting point" rows="2" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400 transition placeholder:text-slate-300"></textarea>
-      <textarea x-model="newProject.goal" placeholder="Goal — what to achieve" rows="2" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400 transition placeholder:text-slate-300"></textarea>
+      <label class="block text-xs font-medium text-slate-500">Goal<textarea x-model="newProject.goal" placeholder="What should the agent achieve?" rows="4" class="block mt-1 w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400 transition placeholder:text-slate-300"></textarea></label>
+      <details class="pt-2">
+        <summary class="text-xs text-slate-500 cursor-pointer">Optional details and settings</summary>
+        <div class="space-y-3 mt-3">
+          <label class="block text-xs font-medium text-slate-500">Title, optional<input x-model="newProject.title" placeholder="Leave blank for an automatic title" class="block mt-1 w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400 transition placeholder:text-slate-300"></label>
+          <label class="block text-xs font-medium text-slate-500">Starting context, optional<textarea x-model="newProject.origin" placeholder="Add any background or materials the agent should start with." rows="2" class="block mt-1 w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400 transition placeholder:text-slate-300"></textarea></label>
       <label class="flex items-center gap-2 px-1 text-sm text-slate-600">
         <input type="checkbox" x-model="newProject.bootstrap" class="h-4 w-4 rounded border-slate-300 text-brand-500 focus:ring-brand-200">
-        <span>Run bootstrap attempt</span>
+        <span>Try the goal directly first</span>
       </label>
 
       <div>
@@ -1046,10 +1054,12 @@
         </template>
         <p class="text-[11px] text-slate-400">Hint creator uses local actor: <span class="font-medium text-slate-600" x-text="actorName()"></span></p>
       </div>
+        </div>
+      </details>
     </div>
     <div class="flex justify-end gap-2 mt-5">
       <button @click="showNewProject = false" class="px-4 py-2 text-sm text-slate-500 hover:bg-slate-50 rounded-xl transition">Cancel</button>
-      <button @click="createProject()" :disabled="!newProject.title || !newProject.origin || !newProject.goal"
+      <button @click="createProject()" :disabled="!newProject.goal.trim()"
         class="px-5 py-2 text-sm bg-brand-500 text-white rounded-xl font-medium hover:bg-brand-600 transition disabled:opacity-30 shadow-sm shadow-brand-200">Create</button>
     </div>
   </div>
@@ -1311,10 +1321,9 @@ function cairnApp() {
     workflowScrollPositions: {},
     stageHistory: {},
     emptyStageHistory: {index:null,selectedSource:null,facts:null,selectedFact:null,loadingIndex:false,loadingFacts:false,loadingFact:false,error:''},
-    workflowStageSequence: 2,
+    workflowStageSequence: 1,
     newWorkflow: { title: '', origin: '', stages: [
-      { id: 'stage_1', title: 'Investigation', goal: '', kind: 'research', layer: '', depends_on: [], bootstrap_enabled: true, artifacts: [] },
-      { id: 'stage_2', title: 'Produce the result', goal: '', kind: 'work', layer: '', depends_on: ['stage_1'], bootstrap_enabled: true, artifacts: [] },
+      { id: 'stage_1', title: '', goal: '', kind: 'work', layer: '', depends_on: [], bootstrap_enabled: true, artifacts: [] },
     ] },
     project: null,
     selectedProjectId: '',
@@ -1782,11 +1791,18 @@ function cairnApp() {
     },
 
     workflowFormValid() {
-      return !!this.newWorkflow.title.trim() && !!this.newWorkflow.origin.trim()
-        && this.newWorkflow.stages.length > 0
-        && this.newWorkflow.stages.every(stage => stage.title.trim()
-          && (stage.goal.trim() || stage.artifacts.length > 0)
+      return this.newWorkflow.stages.length > 0
+        && this.newWorkflow.stages.every(stage => (stage.goal.trim() || stage.artifacts.length > 0)
           && stage.artifacts.every(artifact => artifact.path.trim()));
+    },
+
+    workflowDraftStageTitle(stage) {
+      if (stage.title.trim()) return stage.title.trim();
+      const goal = stage.goal.trim().split('\n').find(line => line.trim());
+      if (goal) return goal.trim().slice(0, 72);
+      const output = stage.artifacts.find(artifact => artifact.path.trim());
+      if (output) return output.label.trim() || output.path.trim();
+      return `Stage ${this.newWorkflow.stages.findIndex(item => item.id === stage.id) + 1}`;
     },
 
     addWorkflowStage() {
@@ -1837,9 +1853,10 @@ function cairnApp() {
       this.isCreatingWorkflow = true;
       try {
         const data = await this.api('POST', '/workflows', {
-          title: this.newWorkflow.title.trim(), origin: this.newWorkflow.origin.trim(),
+          ...(this.newWorkflow.title.trim() ? {title:this.newWorkflow.title.trim()} : {}),
+          ...(this.newWorkflow.origin.trim() ? {origin:this.newWorkflow.origin.trim()} : {}),
           stages: this.newWorkflow.stages.map(stage => ({
-            id: stage.id, title: stage.title.trim(), goal: stage.goal.trim(), kind: stage.kind,
+            id: stage.id, ...(stage.title.trim() ? {title:stage.title.trim()} : {}), goal: stage.goal.trim(), kind: stage.kind,
             layer: stage.layer.trim() || null, depends_on: [...stage.depends_on], bootstrap_enabled: stage.bootstrap_enabled,
             artifacts: stage.artifacts.map(artifact => ({path:artifact.path.trim(),label:artifact.label.trim() || null})),
           })),
@@ -3793,13 +3810,14 @@ function cairnApp() {
     },
 
     async createProject() {
+      if (!this.newProject.goal.trim()) return;
       try {
         const actor = this.actorName();
         const hintContents = this.newProject.hints.filter(h => h.content?.trim());
         const body = {
-          title: this.newProject.title,
-          origin: this.newProject.origin,
-          goal: this.newProject.goal,
+          ...(this.newProject.title.trim() ? {title:this.newProject.title.trim()} : {}),
+          ...(this.newProject.origin.trim() ? {origin:this.newProject.origin.trim()} : {}),
+          goal: this.newProject.goal.trim(),
           bootstrap_enabled: this.newProject.bootstrap
         };
         const hints = hintContents.map(h => ({ content: h.content.trim(), creator: actor }));
