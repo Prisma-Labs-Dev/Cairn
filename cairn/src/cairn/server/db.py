@@ -10,6 +10,14 @@ DEFAULT_DB = Path.home() / ".local" / "share" / "cairn" / "cairn.db"
 _db_path: Path | None = None
 
 SCHEMA = """\
+CREATE TABLE IF NOT EXISTS workflows (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    origin TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     intent_timeout INTEGER NOT NULL DEFAULT 15,
     reason_timeout INTEGER NOT NULL DEFAULT 15
@@ -29,11 +37,38 @@ CREATE TABLE IF NOT EXISTS projects (
     reason_last_heartbeat_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS workflow_stages (
+    workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+    id TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    definition_json TEXT NOT NULL,
+    project_id TEXT UNIQUE REFERENCES projects(id),
+    handoffs_json TEXT NOT NULL DEFAULT '[]',
+    completion_json TEXT,
+    artifact_recovery_attempts INTEGER NOT NULL DEFAULT 0,
+    artifact_error TEXT,
+    PRIMARY KEY (workflow_id, id)
+);
+
 CREATE TABLE IF NOT EXISTS facts (
     id TEXT NOT NULL,
     project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     description TEXT NOT NULL,
     PRIMARY KEY (id, project_id)
+);
+
+CREATE TABLE IF NOT EXISTS artifacts (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+    stage_id TEXT NOT NULL,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    path TEXT NOT NULL,
+    label TEXT,
+    size INTEGER NOT NULL,
+    sha256 TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    content BLOB NOT NULL,
+    UNIQUE (project_id, path)
 );
 
 CREATE TABLE IF NOT EXISTS intents (
@@ -72,6 +107,7 @@ CREATE TABLE IF NOT EXISTS counters (
 );
 
 INSERT OR IGNORE INTO counters (name, value) VALUES ('project', 0);
+INSERT OR IGNORE INTO counters (name, value) VALUES ('workflow', 0);
 
 CREATE TABLE IF NOT EXISTS scoped_counters (
     project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -91,6 +127,7 @@ def configure(path: Path) -> None:
     with get_conn() as conn:
         conn.executescript(SCHEMA)
         _ensure_project_columns(conn)
+        _ensure_workflow_stage_columns(conn)
 
 
 def _ensure_project_columns(conn: sqlite3.Connection) -> None:
@@ -101,6 +138,19 @@ def _ensure_project_columns(conn: sqlite3.Connection) -> None:
             conn.execute(
                 "UPDATE projects SET bootstrap_enabled = CASE WHEN bootstrap_mode = 'disabled' THEN 0 ELSE 1 END"
             )
+    for column in ("workflow_id", "workflow_stage_id"):
+        if column not in columns:
+            conn.execute(f"ALTER TABLE projects ADD COLUMN {column} TEXT")
+
+
+def _ensure_workflow_stage_columns(conn: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(workflow_stages)")}
+    if "artifact_recovery_attempts" not in columns:
+        conn.execute(
+            "ALTER TABLE workflow_stages ADD COLUMN artifact_recovery_attempts INTEGER NOT NULL DEFAULT 0"
+        )
+    if "artifact_error" not in columns:
+        conn.execute("ALTER TABLE workflow_stages ADD COLUMN artifact_error TEXT")
 
 
 @contextmanager

@@ -18,6 +18,7 @@ def _loop() -> DispatcherLoop:
     loop.cleanup_futures = {}
     loop._cleanup_pending = set()
     loop._inactive_cleanup_done = {}
+    loop._workflow_cleanup_done = set()
     loop.worker_unhealthy_until = {}
     loop.worker_rejected_until = {}
     loop._log_state = {}
@@ -106,6 +107,63 @@ def test_reap_cleanup_future_records_only_successful_inactive_cleanup() -> None:
     assert loop.cleanup_futures == {}
     assert loop._cleanup_pending == set()
     assert loop._inactive_cleanup_done == {"proj-success": "completed"}
+
+
+def test_workflow_cleanup_waits_for_siblings_and_tasks_and_retains_artifacts() -> None:
+    loop = _loop()
+    loop.futures = {}
+    calls = []
+    inspections = []
+
+    class Backend:
+        def container_name(self, runtime_id):
+            return f"container-{runtime_id}"
+
+        def needs_completed_cleanup(self, runtime_id):
+            raise AssertionError("workflow must never use remove-on-completion cleanup")
+
+        def needs_stopped_cleanup(self, runtime_id):
+            inspections.append(runtime_id)
+            return True
+
+        def cleanup_stopped(self, runtime_id):
+            calls.append(runtime_id)
+            return True
+
+    class Executor:
+        def submit(self, action, runtime_id):
+            future = Future()
+            future.set_result(action(runtime_id))
+            return future
+
+    loop.container_manager = Backend()
+    loop.cleanup_executor = Executor()
+    completed = _summary("a", "completed").model_copy(update={"workflow_id": "workflow_001"})
+    active = _summary("b", "active").model_copy(update={"workflow_id": "workflow_001"})
+    loop._queue_container_cleanups([completed, active])
+    assert calls == []
+    stopped = active.model_copy(update={"status": "stopped"})
+    loop.futures = {Future(): type("Task", (), {"project_id": "b"})()}
+    loop._queue_container_cleanups([completed, stopped])
+    assert calls == []
+    loop.futures = {}
+    loop._queue_container_cleanups([completed, stopped])
+    assert calls == ["workflow_001"]
+    assert loop._cleanup_pending == {"container-workflow_001"}
+    loop._refresh_runtime_projects([completed, stopped])
+    loop._queue_container_cleanups([completed, stopped])
+    assert calls == ["workflow_001"]
+    assert loop._workflow_cleanup_done == set()  # mark only after cleanup is reaped
+    loop._reap_cleanup_futures()
+    assert loop._workflow_cleanup_done == {"workflow_001"}
+    loop._refresh_runtime_projects([completed, stopped])
+    loop._queue_container_cleanups([completed, stopped])
+    assert calls == ["workflow_001"]  # old workflow is not inspected again every tick
+    assert inspections == ["workflow_001"]
+    loop._refresh_runtime_projects([completed, active])
+    assert loop._workflow_cleanup_done == set()
+    loop._queue_container_cleanups([completed, stopped])
+    assert calls == ["workflow_001", "workflow_001"]
 
 
 def test_choose_worker_prefers_priority_then_lower_running_count() -> None:

@@ -202,6 +202,8 @@ def project_meta_from_row(row: sqlite3.Row) -> ProjectMeta:
         bootstrap_enabled=bool(row["bootstrap_enabled"]),
         created_at=row["created_at"],
         reason=project_reason_from_row(row),
+        workflow_id=row["workflow_id"],
+        workflow_stage_id=row["workflow_stage_id"],
     )
 
 

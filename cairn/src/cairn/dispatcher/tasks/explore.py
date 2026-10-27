@@ -43,7 +43,7 @@ def run_explore_task(
     lease = HeartbeatLease.for_intent(client, project.project.id, intent.id, worker.name, config.runtime.interval)
     lease.start()
     try:
-        container_name = container_manager.ensure_running(project.project.id)
+        container_name = container_manager.ensure_running(project.project.runtime_id)
 
         if task_healthcheck_enabled(config):
             LOG.info(
@@ -287,7 +287,7 @@ def _try_conclude_fallback(
         best_effort_release(client, project_id, intent.id, worker.name)
         return "failed"
 
-    container_name = container_manager.ensure_running(project_id)
+    container_name = container_manager.ensure_running(client.get_project(project_id).project.runtime_id)
 
     prompt = render_prompt(
         load_prompt(config.runtime.prompt_group, "explore_conclude.md"),

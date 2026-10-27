@@ -12,6 +12,8 @@ from docker.models.containers import Container
 
 from cairn.dispatcher.config import ContainerConfig
 from cairn.dispatcher.runtime.process import ManagedProcess
+from cairn.dispatcher.runtime.artifact_files import CONTAINER_READ_SCRIPT
+from cairn.server.artifact_models import validate_artifact_path
 
 LOG = logging.getLogger(__name__)
 
@@ -36,6 +38,24 @@ class ContainerManager:
         name = self.container_name(project_id)
         with self._ensure_running_lock(name):
             return self._ensure_running_locked(project_id, name)
+
+    def read_file(self, container_name: str, path: str, max_bytes: int) -> bytes:
+        validate_artifact_path(path)
+        container = self._require_container(container_name)
+        try:
+            result = container.exec_run(
+                ["python3", "-c", CONTAINER_READ_SCRIPT, path, str(max_bytes)], demux=True,
+            )
+        except DockerException as exc:
+            raise RuntimeError(f"failed to read artifact {path}: {exc}") from exc
+        stdout, stderr = result.output
+        if result.exit_code:
+            message = (stderr or b"").decode("utf-8", errors="replace")[-1000:]
+            raise ValueError(f"artifact {path} could not be read: {message}")
+        content = stdout or b""
+        if len(content) > max_bytes:
+            raise ValueError("artifact exceeds the 10 MiB limit")
+        return content
 
     def _ensure_running_locked(self, project_id: str, name: str) -> str:
         state = self.inspect_state(name)

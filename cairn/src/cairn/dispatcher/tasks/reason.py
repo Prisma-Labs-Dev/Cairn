@@ -4,6 +4,7 @@ import logging
 import time
 
 from cairn.dispatcher.config import DispatchConfig, WorkerConfig
+from cairn.dispatcher.artifacts import capture_required_artifacts
 from cairn.dispatcher.contracts import parse_json_output, validate_reason_payload
 from cairn.dispatcher.prompting import (
     format_fact_ids,
@@ -45,7 +46,7 @@ def run_reason_task(
     lease = HeartbeatLease.for_reason(client, project.project.id, worker.name, config.runtime.interval)
     lease.start()
     try:
-        container_name = container_manager.ensure_running(project.project.id)
+        container_name = container_manager.ensure_running(project.project.runtime_id)
 
         if task_healthcheck_enabled(config):
             LOG.info(
@@ -202,6 +203,12 @@ def run_reason_task(
             )
             return "rejected"
         if kind == "complete":
+            if project.required_artifacts and not capture_required_artifacts(
+                client, container_manager, project, worker.name,
+            ):
+                # Recovery is now an open exploration intent. Advance the reason
+                # checkpoint so repeated completion attempts cannot starve it.
+                return "success"
             response = client.complete(project.project.id, data["from"], data["description"], worker.name)
             if response.status_code == 403:
                 LOG.info("project became inactive during reason complete project=%s worker=%s", project.project.id, worker.name)

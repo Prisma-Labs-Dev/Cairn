@@ -17,7 +17,7 @@
   </a>
 </p>
 
-Cairn is a general-purpose problem-solving engine. <br/>It defines no roles, no workflows. Given an origin and a goal, it searches for a path through an unknown state space. <br/>AI Penetration Testing is one such problem — and a proven one.
+Cairn is a general-purpose problem-solving engine. <br/>Given an origin and a goal, it searches for a path through an unknown state space. <br/>This fork adds staged workflows above the exploration engine. AI Penetration Testing is the upstream project's first validated domain.
 
 <p>
   <a href="https://discord.gg/nDSy4NZVP" target="_blank" rel="noopener noreferrer">
@@ -29,6 +29,18 @@ Cairn is a general-purpose problem-solving engine. <br/>It defines no roles, no 
 </p>
 
 </div>
+
+## Staged workflows in this fork
+
+Chain several goals into a workflow, or run independent research stages in parallel and
+join their results. A stage starts only when all its prerequisites complete. Each stage
+keeps its own Cairn fact graph; later stages receive earlier findings and share the workflow's
+working files. A stage can require a goal, specified output files, or both. Required artifacts
+are collected before the next stage unlocks. The UI shows goals, progress, completion
+explanations, and artifact downloads.
+
+See [Staged workflows](docs/workflows.md) for the creation flow, a research-to-manuscript
+example, API usage, file retention, and current limits. Existing single-project runs still work.
 
 <p align="center">
   <a href="https://www.bilibili.com/video/BV1a8R5BhEVi/" target="_blank" rel="noopener noreferrer">
