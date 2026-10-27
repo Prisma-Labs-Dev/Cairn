@@ -70,7 +70,7 @@ workspace. File preparation is separate from schema validation.
 
 Missing `depends_on` means an independent root, not an implicit sequence. Listing stages
 in an array does not chain them. Every listed prerequisite must satisfy its completion gate
-before a dependent starts. `kind` can be `research`, `work`, `synthesis`, or `review`; `layer`
+before a dependent starts, or explicitly permit a not-applicable outcome. `kind` can be `research`, `work`, `synthesis`, or `review`; `layer`
 groups stages visually. Both are labels, not execution rules. In particular, `kind: review`
 does not enable independent completion verification.
 
@@ -168,11 +168,124 @@ In `all` mode every generated goal is required, and unstarted direct successors 
 of them. `all` is the default expansion mode. Do not omit `mode: one` when the children are
 alternatives.
 
+## Branch on accepted findings
+
+Use typed results when a later stage needs a specific finding. Put the contract in the
+stage definition and actual values in the worker's completion. Cairn evaluates conditions
+against the accepted result; a condition is not an instruction for the next agent to
+reinterpret.
+
+This complete example investigates supplied records only when research found relevant ones,
+then writes a report in either case:
+
+```yaml
+title: Investigate relevant supplied records
+origin: >-
+  Use only inputs/records.json in the shared workspace. Preserve record IDs and source
+  references. Do not invent observations. Produce a report even when nothing is relevant.
+stages:
+  - id: select
+    kind: research
+    verification_enabled: true
+    goal: Read the supplied records, identify the relevant records, and write evidence/selection.json with IDs and reasons. Zero relevant records is a valid finding.
+    result:
+      relevant_count: {type: integer, minimum: 0}
+    artifacts:
+      - path: evidence/selection.json
+  - id: investigate
+    kind: research
+    depends_on:
+      - stage: select
+        when: select.result.relevant_count > 0
+    goal: Use the accepted selection to propose one independent investigation goal per relevant record. Each goal must cite the supplied source and declare its own distinct evidence file.
+    expansion: {mode: all, max_goals: 8}
+    emits:
+      collection: investigations
+      result:
+        record_id: {type: string}
+        supported: {type: boolean}
+  - id: report
+    kind: synthesis
+    depends_on:
+      - select
+      - collection: investigations
+        allow_not_applicable: true
+    goal: Read the investigations manifest and its referenced evidence, plus the selection artifact. Write outputs/report.md covering every selected record and its evidence. If investigation did not apply, explain the negative selection finding. Distinguish unsupported findings from missing work.
+    artifacts:
+      - path: outputs/report.md
+```
+
+An accepted `select` completion includes `result: {"relevant_count": 2}`. With verification
+enabled, this result remains pending until another agent approves the frozen claim. A
+rejected claim does not start investigation.
+
+If the accepted count is zero, `select` still completed successfully. `investigate` becomes
+`not_applicable` with a durable reason and never starts a worker. The report explicitly
+permits that absence. Without `allow_not_applicable: true`, inapplicability propagates to
+the report. `blocked` continues to mean waiting; it is not a negative finding.
+
+Every listed dependency must resolve. A successful unrelated prerequisite never overrides
+a false condition. A dependency can be a string, `{stage, when?, allow_not_applicable?}`,
+or `{collection, allow_not_applicable?}`. A `when` expression must reference a declared field
+on that entry's stage. Supported comparisons are `==`, `!=`, `>`, `>=`, `<`, `<=`, and `in`.
+There are no boolean operators or arbitrary executable expressions. Each dependency target
+appears once. If one predecessor needs a combined test, declare a boolean result such as
+`eligible` in that predecessor and explain its evidence requirements in the goal.
+
+Result contracts are flat maps. Fields support `integer`, `number`, `boolean`, or `string`,
+with homogeneous scalar `enum` values and optional numeric bounds. Enum-only fields infer
+their type. All declared fields are required. Extra fields, invalid values, booleans passed
+as integers, and non-finite numbers are rejected. Contracts have at most 32 fields and
+16 KiB of encoded data; completion results also have a 16 KiB limit. Strings have at most
+2,048 characters and enums at most 64 values. Malformed worker results enter bounded
+correction, pausing after three correction attempts for inspection and explicit resume.
+A typed `supported: true` is still a
+worker claim; use evidence and verification to assess accuracy.
+
+## Collect generated results explicitly
+
+In the example, `investigate.emits.result` is the result contract inherited by every
+generated investigation. It is different from the discovery stage's own optional `result`.
+Generated goals retain ordinary artifact requirements, so proposals should give each member
+a distinct explicit output path:
+
+```json
+{
+  "id": "record_alpha",
+  "goal": "Check record alpha against its supplied source; cite the source and report record_id and supported.",
+  "artifacts": [{"path": "evidence/alpha.json", "label": "Record alpha evidence"}]
+}
+```
+
+After completing this goal, its worker includes
+`"result": {"record_id": "alpha", "supported": false}` beside its normal completion
+fields. `false` can be a valid completed finding. It does not mean that the investigation
+itself failed.
+
+Read membership through
+`GET /workflows/{workflow_id}/collections/investigations`, not a directory glob. The manifest
+records the emitter, whether membership is sealed, readiness, and each member's stage,
+project, outcome, accepted result, and artifact references. The UI shows these under Result
+collections. Earlier findings remain optional reads through the stage history.
+
+Membership seals when discovery completion is accepted. A successful `goals: []` produces a
+ready empty collection. An inapplicable discovery is recorded separately and requires
+explicit `allow_not_applicable` on a collection dependency. Paused or unfinished members do
+not silently become successful results. Collections require `expansion.mode: all`; ranked
+choose-one options keep their selection and fallback semantics. Generated members cannot
+create recursive workflows or replace their inherited result contract.
+
+The UI's New workflow form supports simple stages. Use **Edit full JSON definition** for
+conditions, result contracts, and collections, or create the same object from a JSON/YAML
+file with the CLI. Creating a revised advanced workflow preserves those fields in the JSON
+editor instead of reducing them to simple dependency checkboxes.
+
 ## Initial definitions and worker completion are different formats
 
 Author the `stages` object above. Do not put a precomputed `goals`, `selected_goal`, or
 `selection_reason` at the workflow root or stage root. Those are discovery completion fields,
-produced only after the worker has actually established its findings.
+produced only after the worker has actually established its findings. A definition's `result`
+is a field contract; the completion's `result` map contains the observed values.
 
 For the choice example, a discovery worker might return this reason-task result, using a
 real source fact ID from its current graph. This is not a workflow creation body and is not

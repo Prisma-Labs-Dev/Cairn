@@ -150,11 +150,13 @@ class CairnClient:
             json={"worker": worker, "description": description},
         )
 
-    def complete(self, project_id: str, from_ids: list[str], description: str, worker: str, goals: list[dict] | None = None, producer_agent_id: str | None = None, producer_session_id: str | None = None, selected_goal: str | None = None, selection_reason: str | None = None) -> ApiResult:
+    def complete(self, project_id: str, from_ids: list[str], description: str, worker: str, goals: list[dict] | None = None, producer_agent_id: str | None = None, producer_session_id: str | None = None, selected_goal: str | None = None, selection_reason: str | None = None, result: dict | None = None) -> ApiResult:
         payload = {"from": from_ids, "description": description, "worker": worker}
         if producer_agent_id is not None:
             payload["producer_agent_id"] = producer_agent_id
             payload["producer_session_id"] = producer_session_id
+        if result is not None:
+            payload["result"] = result
         if goals is not None:
             payload["goals"] = goals
         if selected_goal is not None:
@@ -166,6 +168,9 @@ class CairnClient:
             f"/projects/{project_id}/complete",
             json=payload,
         )
+
+    def request_result_recovery(self, project_id: str, description: str, worker: str) -> ApiResult:
+        return self._request_json("POST", f"/projects/{project_id}/result-recovery", json={"worker": worker, "description": description})
 
     def unavailable(self, project_id: str, from_ids: list[str], description: str, worker: str) -> ApiResult:
         return self._request_json("POST", f"/projects/{project_id}/unavailable",

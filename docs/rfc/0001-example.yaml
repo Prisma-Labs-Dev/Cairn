@@ -1,0 +1,219 @@
+# Access model — from a name to standing access.
+#
+# Written in the adopted format documented by RFC 0001.
+#
+# Everything here runs against supplied fixtures. Hard constraints are in `origin`,
+# and the standing outcome is stated once because it never changes mid-run.
+
+title: Access model — name to standing access (fixtures)
+
+origin: >-
+  Training run against supplied fixtures in inputs/ only. Hard constraints: do not contact
+  live systems, do not fabricate observations, do not follow a vector that the evidence does
+  not open. Standing outcome: a source-backed map of the estate, plus a register of every
+  access genuinely held, each with the artefact that proves it. A step whose correct answer
+  is "no" is a completed step — record it as a negative result rather than an empty file.
+  Every claim needs a source reference: file path and line, a corpus hit, or a command and
+  its output.
+
+stages:
+
+  # ---------------------------------------------------------------- Layer 1: passive
+  # Independent research can run in parallel. Ownership, suppliers, and people need
+  # the surface result first.
+
+  - id: surface
+    kind: research
+    layer: L1
+    goal: >-
+      From the supplied passive sources only (certificate transparency extracts, registry
+      records, ASN data, breach-corpus index, procurement fixtures), enumerate every domain,
+      autonomous system and address range that plausibly belongs to the target organisation.
+      Write evidence/surface.json with one record per asset and the fixture plus line each
+      was taken from. If the fixtures contain none, write the file with an empty list and say
+      so explicitly — do not infer assets from the organisation's name.
+    result:
+      assets: {type: integer}
+    artifacts:
+      - path: evidence/surface.json
+        label: External surface
+
+  - id: ownership
+    kind: research
+    layer: L1
+    depends_on: [surface]
+    verification_enabled: true
+    goal: >-
+      For every asset in evidence/surface.json, record at least two INDEPENDENT ownership
+      signals from the fixtures (certificate subject or SAN, DNS delegation, MX or SPF
+      include, registrant, address-space allocation). Two signals drawn from the same source
+      count once. Mark each asset confirmed or ambiguous, and explain any asset marked
+      ambiguous. Write evidence/ownership.json. A run in which every asset is ambiguous is a
+      valid result and must be reported as such.
+    result:
+      value: {enum: [confirmed, ambiguous, none]}
+      confirmed_count: {type: integer, minimum: 0}
+      ambiguous_count: {type: integer, minimum: 0}
+    artifacts:
+      - path: evidence/ownership.json
+        label: Asset attribution
+
+  - id: leakage
+    kind: research
+    layer: L1
+    goal: >-
+      Search the supplied breach-corpus and public-repository fixtures for material
+      belonging to the target domains. For each hit record the source, the date, and the
+      kind of material (password, hash, token, key) — provenance, never the secret itself.
+      If the fixtures contain no hits, say so. Write evidence/leakage.json.
+    result:
+      value: {enum: [leaked, none]}
+      hits: {type: integer, minimum: 0}
+    artifacts:
+      - path: evidence/leakage.json
+        label: Leakage findings
+
+  - id: suppliers
+    kind: research
+    layer: L1
+    depends_on: [surface]
+    goal: >-
+      Identify third parties with a plausible privileged path into the target, using only
+      the supplied procurement, DNS and web-asset fixtures. For each, name the party AND the
+      exact trust edge (SPF include, delegated zone, third-party script loaded from their
+      domain, support portal with a tenant id). A vendor relationship with no identifiable
+      trust edge does not count. Write evidence/suppliers.json; an empty list is valid.
+    result:
+      value: {enum: [named, none]}
+    artifacts:
+      - path: evidence/suppliers.json
+        label: Supplier trust edges
+
+  - id: people
+    kind: research
+    layer: L1
+    depends_on: [surface]
+    goal: >-
+      From the supplied public-profile, job-advert and repository fixtures, list individuals
+      whose role implies privileged access, with the role, the access you believe it buys,
+      and the fixture evidence for the claim. Do not infer identities that the fixtures do
+      not contain, and do not upgrade "works at the organisation" into "has admin".
+      Write evidence/people.json.
+    result:
+      value: {enum: [named, generic]}
+      named_count: {type: integer, minimum: 0}
+    artifacts:
+      - path: evidence/people.json
+        label: Human surface
+
+  # ---------------------------------------------------------------- Layer 2: contact
+  # The first stages that would touch the target. Exposure is gated on CONFIRMED
+  # ownership: fingerprinting an asset you have not attributed proves nothing.
+
+  - id: exposure
+    kind: research
+    layer: L2
+    depends_on:
+      - stage: ownership
+        when: ownership.result.confirmed_count > 0
+    goal: >-
+      For confirmed assets only, record a version string you can quote, the fixture or
+      observation it came from, and the CVE whose affected range contains it. Where the
+      fixture provides no version, record "unfingerprinted" rather than guessing from
+      product names. Write evidence/exposure.json. If no asset is confirmed this stage does
+      not run; that is the intended behaviour, not a gap.
+    result:
+      value: {enum: [exploitable, old, opaque]}
+      candidates: {type: integer, minimum: 0}
+    artifacts:
+      - path: evidence/exposure.json
+        label: Exposure candidates
+
+  - id: edge
+    kind: research
+    layer: L2
+    depends_on: [surface]
+    goal: >-
+      From the supplied service inventory, list unauthenticated-input services with port,
+      protocol, banner and an explicit authentication-required flag. A banner alone does not
+      establish that authentication is absent — say "unknown" where the fixture is silent.
+      Write evidence/edge.json.
+    result:
+      value: {enum: [several, hardened]}
+      services: {type: integer, minimum: 0}
+    artifacts:
+      - path: evidence/edge.json
+        label: Edge inventory
+
+  # ---------------------------------------------------------------- Layer 3: holdings
+  # Discovery, not commitment. The stage enumerates which vectors the evidence actually
+  # opens, and one generated child per open vector acquires and records that holding.
+  # Explicitly allow an inapplicable exposure branch. Successful negative findings
+  # in the other research stages remain ordinary completed prerequisites.
+
+  - id: discover_vectors
+    kind: research
+    layer: L3
+    depends_on:
+      - {stage: exposure, allow_not_applicable: true}
+      - leakage
+      - suppliers
+      - people
+      - edge
+    expansion:
+      mode: all
+      max_goals: 8
+    emits:
+      collection: holdings
+      result:
+        reach: {enum: [code_execution, data, authentication_bypass, none]}
+        durability: {enum: [known, unknown]}
+        noise: {enum: [low, medium, high, unknown]}
+    goal: >-
+      Using only the evidence collected so far, list the access vectors that are genuinely
+      open. A vector is open only when the specific artefact exists: an exploitable
+      candidate on a confirmed asset, a credential with a provenance record, a named
+      supplier with an identified trust edge, a named person with a role that implies
+      access. For each open vector, emit exactly one goal that acquires it in the fixtures
+      and writes one record under evidence/holdings/ stating: what it gives you (code
+      execution, data only, authentication bypass, or nothing repeatable), its durability,
+      its first-touch noise, and the artefact that proves reach. Emit nothing for a vector
+      whose precondition failed; describe rejected vectors and reasons in evidence/vectors.json.
+      Give each generated goal its own explicit evidence/holdings/<goal-id>.json artifact
+      requirement. Every generated goal must also report the declared member result fields.
+    result:
+      open_vectors: {type: integer, minimum: 0}
+      considered: {type: integer, minimum: 0}
+    artifacts:
+      - path: evidence/vectors.json
+        label: Vector assessment
+
+  # ---------------------------------------------------------------- Portfolio
+  # A join over the collection. This is the stage the old format could not express
+  # without globbing a directory and hoping the children agreed on a schema.
+
+  - id: portfolio
+    kind: synthesis
+    layer: L4
+    depends_on:
+      - collection: holdings
+    verification_enabled: true
+    goal: >-
+      Read the explicit holdings collection manifest and its referenced artifacts, plus
+      evidence/vectors.json. Do not infer membership by globbing the workspace. Produce
+      outputs/holdings.json with one entry per holding (kind, durability, noise, proof of
+      reach) and outputs/holdings.md stating: how many holdings are real; whether any two
+      share infrastructure or identity, in which case they are one holding and must be
+      counted as one; which single holding to spend first and why; and which vectors were
+      considered and rejected. If a member is not applicable, list it
+      explicitly as absent rather than omitting it. An empty collection is a valid finding.
+      Do not recommend spending a holding
+      whose durability is unknown.
+    artifacts:
+      - path: outputs/holdings.json
+        label: Holding register
+      - path: outputs/holdings.md
+        label: Portfolio assessment
+
+# Generated goals are a bounded single level. They cannot generate recursive chains or
+# supply further dependencies. Additional fixed phases can be top-level stages.

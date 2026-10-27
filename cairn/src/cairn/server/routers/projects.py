@@ -6,7 +6,7 @@ from cairn.server.verification_service import submit_claim, invalidate_review_le
 from cairn.server.artifact_service import requirements_for_project, require_stage_artifacts
 from cairn.server.workflow_service import (
     complete_workflow_stage, require_standalone_project, expansion_for_project,
-    append_generated_goals, request_expansion_recovery,
+    append_generated_goals, request_expansion_recovery, result_contract_for_project, validate_project_result, request_result_recovery,
 )
 from cairn.server.models import (
     CompleteRequest, UnavailableRequest,
@@ -159,6 +159,7 @@ def _project_detail(conn, row) -> ProjectDetail:
         hints=[Hint(**dict(h)) for h in hints],
         required_artifacts=requirements_for_project(conn, project_id),
         expansion=expansion_for_project(conn, project_id),
+        result_contract=result_contract_for_project(conn, project_id),
         choice_option=conn.execute("SELECT 1 FROM workflow_stages WHERE project_id=? AND option_state='selected'", (project_id,)).fetchone() is not None,
     )
 
@@ -296,6 +297,7 @@ def complete_project(project_id: str, body: CompleteRequest):
         require_project_writable(conn, existing_project)
         validate_facts_exist(conn, project_id, body.from_)
         validate_goal_not_in_sources(body.from_)
+        validate_project_result(conn, project_id, body.result)
         if existing_project["verification_enabled"]:
             require_stage_artifacts(conn, project_id)
             return submit_claim(conn, existing_project, body)
@@ -305,7 +307,7 @@ def complete_project(project_id: str, body: CompleteRequest):
             intent = get_completion_intent_or_409(conn, project_id)
             if (recorded.description == body.description and recorded.from_ == body.from_
                     and recorded.goals == body.goals and recorded.selected_goal == body.selected_goal
-                    and recorded.selection_reason == body.selection_reason and intent["worker"] == body.worker):
+                    and recorded.selection_reason == body.selection_reason and recorded.result == body.result and intent["worker"] == body.worker):
                 return intent_to_model(conn, intent, project_id)
             raise HTTPException(409, "This expandable stage is already completed with different results")
         project = check_project_active(conn, project_id)
@@ -316,6 +318,7 @@ def complete_project(project_id: str, body: CompleteRequest):
 def apply_completion(conn, project, body):
     project_id = project["id"]
     require_stage_artifacts(conn, project_id)
+    validate_project_result(conn, project_id, body.result)
     append_generated_goals(conn, project, body.goals, body.selected_goal, body.selection_reason)
 
     now = utcnow()
@@ -343,7 +346,7 @@ def apply_completion(conn, project, body):
         (project_id,),
     )
 
-    complete_workflow_stage(conn, project, body.description, body.from_, now, body.goals, body.selected_goal, body.selection_reason)
+    complete_workflow_stage(conn, project, body.description, body.from_, now, body.goals, body.selected_goal, body.selection_reason, body.result)
 
     return Intent(
         id=iid,
@@ -363,6 +366,14 @@ def expansion_recovery(project_id: str, body: ConcludeRequest):
         conn.execute("BEGIN IMMEDIATE")
         project = check_project_active(conn, project_id)
         return request_expansion_recovery(conn, project, body.description)
+
+
+@router.post("/projects/{project_id}/result-recovery")
+def result_recovery(project_id: str, body: ConcludeRequest):
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        project = check_project_active(conn, project_id)
+        return request_result_recovery(conn, project, body.description)
 
 
 @router.post("/projects/{project_id}/reopen", response_model=ReopenResponse)

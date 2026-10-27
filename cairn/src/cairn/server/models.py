@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
 from cairn.server.artifact_models import ArtifactRecord, ArtifactRequirement
+from cairn.server.workflow_conditions import (ResultField, StageDependency, CollectionDependency, CollectionEmission, validate_contract, validate_predicate, dependency_stage)
 
 
 def _artifact_collision_key(path: str) -> str:
@@ -130,6 +131,7 @@ class ProjectDetail(BaseModel):
     required_artifacts: list[ArtifactRequirement] = Field(default_factory=list)
     expansion: GoalExpansion | None = None
     choice_option: bool = False
+    result_contract: dict[str, ResultField] = Field(default_factory=dict)
 
 
 class CreateHintInline(BaseModel):
@@ -260,6 +262,7 @@ class CompleteRequest(BaseModel):
     goals: list[GeneratedGoalDefinition] | None = Field(default=None, max_length=64)
     selected_goal: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"\S")
     selection_reason: str | None = Field(default=None, min_length=1, max_length=8_000, pattern=r"\S")
+    result: dict | None = None
 
     model_config = {"populate_by_name": True}
 
@@ -360,7 +363,9 @@ class WorkflowStageDefinition(BaseModel):
     goal: str = ""
     kind: Literal["research", "work", "synthesis", "review"] = "work"
     layer: str | None = None
-    depends_on: list[str] = Field(default_factory=list)
+    depends_on: list[str | StageDependency | CollectionDependency] = Field(default_factory=list, max_length=128)
+    result: dict[str, ResultField] = Field(default_factory=dict)
+    emits: CollectionEmission | None = None
     bootstrap_enabled: bool = True
     artifacts: list[ArtifactRequirement] = Field(default_factory=list, max_length=32)
     expansion: GoalExpansion | None = None
@@ -377,6 +382,9 @@ class WorkflowStageDefinition(BaseModel):
 
     @model_validator(mode="after")
     def validate_goal_and_outputs(self):
+        validate_contract(self.result)
+        if self.emits is not None and (self.expansion is None or self.expansion.mode != "all"):
+            raise ValueError("emits requires expansion mode all")
         self.goal = self.goal.strip()
         title_source = self.goal
         if not self.goal:
@@ -423,12 +431,26 @@ class CreateWorkflowRequest(BaseModel):
         artifact_paths = [_artifact_collision_key(artifact.path) for stage in self.stages for artifact in stage.artifacts]
         if len(set(artifact_paths)) != len(artifact_paths):
             raise ValueError("artifact paths must be unique across workflow stages")
+        definitions = {stage.id: stage for stage in self.stages}
+        emissions = [stage.emits.collection for stage in self.stages if stage.emits]
+        if len(set(emissions)) != len(emissions):
+            raise ValueError("collection names must be unique")
+        collections = {stage.emits.collection: stage.id for stage in self.stages if stage.emits}
+        remaining = {}
         for stage in self.stages:
-            if len(set(stage.depends_on)) != len(stage.depends_on):
-                raise ValueError(f"duplicate dependencies for {stage.id}")
-            if not set(stage.depends_on) <= ids:
-                raise ValueError(f"unknown dependency for {stage.id}")
-        remaining = {stage.id: set(stage.depends_on) for stage in self.stages}
+            targets = []
+            for dependency in stage.depends_on:
+                if isinstance(dependency, CollectionDependency) and dependency.collection not in collections:
+                    raise ValueError(f"unknown collection for {stage.id}")
+                target = dependency_stage(dependency, collections)
+                if target not in ids:
+                    raise ValueError(f"unknown dependency for {stage.id}")
+                if target in targets:
+                    raise ValueError(f"duplicate dependencies for {stage.id}")
+                targets.append(target)
+                if isinstance(dependency, StageDependency) and dependency.when:
+                    validate_predicate(dependency, definitions)
+            remaining[stage.id] = set(targets)
         resolved: set[str] = set()
         while remaining:
             ready = {key for key, dependencies in remaining.items() if dependencies <= resolved}
@@ -454,6 +476,7 @@ class WorkflowSummary(WorkflowMeta):
     stage_count: int
     completed_stage_count: int
     active_stage_count: int
+    not_applicable_stage_count: int = 0
 
 
 class StageCompletion(BaseModel):
@@ -464,6 +487,7 @@ class StageCompletion(BaseModel):
     goals: list[GeneratedGoalDefinition] | None = None
     selected_goal: str | None = None
     selection_reason: str | None = None
+    result: dict | None = None
 
     model_config = {"populate_by_name": True}
 
@@ -479,7 +503,9 @@ class StageHandoff(BaseModel):
 
 class WorkflowStage(WorkflowStageDefinition):
     pending_review_id: str | None = None
-    status: Literal["blocked", "active", "stopped", "completed"]
+    status: Literal["blocked", "active", "stopped", "completed", "not_applicable"]
+    not_applicable_reason: str | None = None
+    resolved_at: str | None = None
     project_id: str | None
     completion: StageCompletion | None
     handoffs: list[StageHandoff]
@@ -490,6 +516,8 @@ class WorkflowStage(WorkflowStageDefinition):
     generated_by_stage_id: str | None = None
     expansion_recovery_attempts: int = Field(default=0, ge=0)
     expansion_error: str | None = None
+    result_recovery_attempts: int = 0
+    result_error: str | None = None
     option_state: Literal["pending", "selected", "succeeded", "unavailable", "skipped"] | None = None
     option_reason: str | None = None
     option_history: list[dict] = Field(default_factory=list)
@@ -520,3 +548,4 @@ class RetryChoiceRequest(BaseModel):
 class WorkflowDetail(BaseModel):
     workflow: WorkflowMeta
     stages: list[WorkflowStage]
+    collections: list[dict] = Field(default_factory=list)

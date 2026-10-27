@@ -208,7 +208,8 @@ def _ensure_project_columns(conn: sqlite3.Connection) -> None:
 
 def _ensure_workflow_stage_columns(conn: sqlite3.Connection) -> None:
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(workflow_stages)")}
-    for name, definition in (("option_state", "TEXT"), ("option_reason", "TEXT"),
+    for name, definition in (("not_applicable_reason", "TEXT"), ("resolved_at", "TEXT"), ("result_recovery_attempts", "INTEGER NOT NULL DEFAULT 0"),
+                             ("result_error", "TEXT"), ("accepted_artifacts_json", "TEXT NOT NULL DEFAULT '[]'"), ("option_state", "TEXT"), ("option_reason", "TEXT"),
                              ("option_history_json", "TEXT NOT NULL DEFAULT '[]'"), ("choice_error", "TEXT")):
         if name not in columns:
             conn.execute(f"ALTER TABLE workflow_stages ADD COLUMN {name} {definition}")

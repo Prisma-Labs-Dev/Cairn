@@ -9,6 +9,8 @@ Changes to the original engine are recorded in [Core changes](docs/core-changes.
 ## What works
 
 - Chains, parallel branches, joins, and stage grouping by layer label.
+- Typed completion results, server-evaluated conditions, and durable not-applicable outcomes.
+- Explicit result collection manifests for bounded all-goal expansion, including empty discovery.
 - Separate goals and fact graphs for stages, with optional earlier findings and artifact provenance.
 - Reference-only handoffs and selective historical reads, without copying the full prior context.
 - Goal-only, artifact-only, and combined stages.
@@ -61,14 +63,20 @@ Live HTTP checks exercised a pending completion claim, same-producer review reje
 approval before workflow fan-out, Trash hiding and write rejection, and paused restoration.
 These are API/state-transition checks. There has been no live Luna benchmark in this work.
 Fabricated citations in evaluator tests are injected test cases, not observed model behavior.
+Conditional workflow checks covered accepted and pending results, false conditions,
+explicitly permitted absence, empty collections, recorded member results and artifact
+references, restart, and bounded result correction. Local browser fixtures verified JSON
+creation, preservation of advanced fields during revision, negative findings, collection
+readback, and desktop/390px layouts. These fixtures executed no model calls.
 [Benchmark setup](docs/benchmarks.md) has no pilot measurements or demonstrated workflow advantage.
 
 ## Current limits
 
 Existing stage definitions remain fixed, but explicitly expandable stages may generate
 bounded follow-up goals. Choose-one expansion tries ranked options until one succeeds, including
-unavailable outcomes and fresh retries. A general conditional-expression language and nested
-reusable workflows are not implemented. Layers are labels over a dependency graph. Runtime caps apply independently
+unavailable outcomes and fresh retries. Conditions use a restricted comparison grammar
+over a named predecessor result. Collections use bounded all-goal expansion. General
+expressions, mutation of accepted results, and nested reusable workflows are not implemented. Layers are labels over a dependency graph. Runtime caps apply independently
 per dispatcher, not across all processes sharing a server.
 Artifacts use distinct output paths across the workflow, up to 10 MiB each, at most 32 declared per stage. File presence is
 checked; semantic correctness still depends on the agent and explicit review stages.

@@ -24,6 +24,8 @@ def expansion_prompt(prompt: str, project: ProjectDetail) -> str:
             "Bootstrap output: {\"accepted\":true,\"data\":{\"fact\":{\"description\":\"Observed evidence\"},\"unavailable\":{\"description\":\"Unmet goal and observed reason\"}}}. "
             "Do not declare unavailable merely because a preferred method failed. The server chooses the next ranked untried alternative.\n"
         )
+    if project.result_contract:
+        instructions += "\n# Typed stage outcome\nAt completion return complete.result with every declared field and no extra fields: " + json.dumps({name: field.model_dump(exclude_none=True) for name, field in project.result_contract.items()}) + ". A negative finding may satisfy the goal. Do not invent evidence.\n"
     if project.expansion:
         instructions += (
             "\n# Goal expansion enabled\n"
@@ -60,7 +62,7 @@ def expansion_prompt(prompt: str, project: ProjectDetail) -> str:
 
 def recover_expansion(client, project: ProjectDetail, worker: str, error) -> str:
     message = " ".join(str(error).split())[:1_000]
-    response = client.request_expansion_recovery(project.project.id, message, worker)
+    response = (client.request_result_recovery(project.project.id, message, worker) if project.result_contract else client.request_expansion_recovery(project.project.id, message, worker))
     if response.status_code == 403:
         return "success"  # workflow stopped/completed while the worker was running
     if not response.ok:

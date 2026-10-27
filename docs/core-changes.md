@@ -207,6 +207,26 @@ has the current request fields and operational limits. Fabrication cases in eval
 are deliberately injected fixtures. There has been no live Luna benchmark or observed Luna
 fabrication in this work.
 
+## Declared workflow result fields in worker completion
+
+Workflow stages can now declare a flat typed result contract. Bootstrap and reason prompts
+include that stage's contract, and their output validators require `complete.result` to
+match it before graph completion writeback. The server validates the same values at the
+completion endpoint and freezes them in a pending review claim when verification is on.
+Approval publishes the accepted result before successor eligibility is evaluated.
+
+This extends the completion payload and adds bounded correction for stages that opted into
+a result contract. A malformed worker result creates corrective work; after three correction
+attempts, automatic work pauses for explicit inspection and resume. It does not change the
+standalone exploration graph, make negative findings failures, or enable verification by
+default. Existing stages without contracts keep their ordinary completion format.
+
+The conditional-stage and collection lifecycle is a workflow extension documented in
+[Staged workflows](workflows.md) and [RFC 0001](rfc/0001-conditional-workflows.md). Proof is
+in [conditional workflow tests](../cairn/tests/test_workflow_conditions.py), including actual
+dispatcher completion transport, review gating, strict result validation, restart, and
+bounded correction with deterministic workers. These checks do not call a live model.
+
 ## Empty HTTP responses
 
 The dispatcher client previously attempted JSON decoding whenever a response declared a JSON
