@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Query
 
 from cairn.server.db import get_conn
-from cairn.server.models import CreateWorkflowRequest, UpdateProjectStatusRequest, WorkflowDetail, WorkflowSummary, Fact, Hint, Intent, StageCompletion
+from cairn.server.models import CreateWorkflowRequest, UpdateProjectStatusRequest, UpdateMetadataRequest, WorkflowDetail, WorkflowSummary, Fact, Hint, Intent, StageCompletion
 from cairn.server.artifact_models import ArtifactRecord
 from cairn.server import workflow_context
 from cairn.server.workflow_service import (
-    create_workflow, set_workflow_status, workflow_detail, workflow_summaries,
+    create_workflow, set_workflow_status, workflow_detail, workflow_summaries, update_workflow_metadata,
 )
 
 router = APIRouter(tags=["workflows"])
@@ -28,6 +28,13 @@ def create(body: CreateWorkflowRequest):
 def detail(workflow_id: str):
     with get_conn() as conn:
         return workflow_detail(conn, workflow_id)
+
+
+@router.patch("/workflows/{workflow_id}/metadata", response_model=WorkflowDetail)
+def refine_metadata(workflow_id: str, body: UpdateMetadataRequest):
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        return update_workflow_metadata(conn, workflow_id, body)
 
 
 @router.put("/workflows/{workflow_id}/status", response_model=WorkflowDetail)

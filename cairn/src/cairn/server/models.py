@@ -4,6 +4,7 @@ from typing import Literal
 import unicodedata
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic.json_schema import SkipJsonSchema
 
 from cairn.server.artifact_models import ArtifactRecord, ArtifactRequirement
 
@@ -12,6 +13,21 @@ def _artifact_collision_key(path: str) -> str:
     # Shared output paths must remain distinct on macOS filesystems as well as
     # case-sensitive Linux volumes. Preserve the original spelling for delivery.
     return unicodedata.normalize("NFC", path).casefold()
+
+
+DERIVED_TITLE_MAX_LENGTH = 96
+
+
+def derive_title(source: str) -> str:
+    first_line = source.strip().splitlines()[0]
+    title = " ".join(first_line.split())
+    if len(title) <= DERIVED_TITLE_MAX_LENGTH:
+        return title
+    return title[:DERIVED_TITLE_MAX_LENGTH - 1].rstrip() + "…"
+
+
+def normalize_optional_text(value: str | None) -> str:
+    return value.strip() if value is not None else ""
 
 
 class Settings(BaseModel):
@@ -97,19 +113,27 @@ class CreateHintInline(BaseModel):
 
 
 class CreateProjectRequest(BaseModel):
-    title: str
-    origin: str
-    goal: str
+    model_config = {"extra": "forbid"}
+
+    title: str | None = None
+    origin: str | None = None
+    goal: str = Field(min_length=1, pattern=r"\S")
     bootstrap_enabled: bool = True
     hints: list[CreateHintInline] | None = None
 
-    @field_validator("title", "origin", "goal")
+    @field_validator("goal")
     @classmethod
     def validate_non_empty_text(cls, value: str) -> str:
         text = value.strip()
         if not text:
             raise ValueError("must not be empty")
         return text
+
+    @model_validator(mode="after")
+    def normalize_metadata(self):
+        self.title = normalize_optional_text(self.title) or derive_title(self.goal)
+        self.origin = normalize_optional_text(self.origin)
+        return self
 
 
 class CreateHintRequest(BaseModel):
@@ -241,6 +265,29 @@ class UpdateProjectTitleRequest(BaseModel):
         return text
 
 
+class UpdateMetadataRequest(BaseModel):
+    model_config = {
+        "extra": "forbid",
+        "json_schema_extra": {"anyOf": [{"required": ["title"]}, {"required": ["origin"]}]},
+    }
+
+    title: str | SkipJsonSchema[None] = Field(default_factory=lambda: None, min_length=1, pattern=r"\S")
+    origin: str | SkipJsonSchema[None] = Field(default_factory=lambda: None, min_length=1, pattern=r"\S")
+
+    @field_validator("title", "origin", mode="before")
+    @classmethod
+    def validate_nonempty_metadata(cls, value) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("metadata updates must provide nonempty strings")
+        return value.strip()
+
+    @model_validator(mode="after")
+    def require_metadata_field(self):
+        if not self.model_fields_set:
+            raise ValueError("provide at least one of title or origin")
+        return self
+
+
 class ReopenRequest(BaseModel):
     description: str
     creator: str
@@ -261,10 +308,16 @@ class ReopenResponse(BaseModel):
 
 
 class WorkflowStageDefinition(BaseModel):
-    model_config = {"extra": "forbid"}
+    model_config = {
+        "extra": "forbid",
+        "json_schema_extra": {"anyOf": [
+            {"required": ["goal"], "properties": {"goal": {"type": "string", "pattern": r"\S"}}},
+            {"required": ["artifacts"], "properties": {"artifacts": {"type": "array", "minItems": 1}}},
+        ]},
+    }
 
-    id: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
-    title: str
+    id: str = Field(default_factory=lambda: "stage_1", pattern=r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
+    title: str | None = None
     goal: str = ""
     kind: Literal["research", "work", "synthesis", "review"] = "work"
     layer: str | None = None
@@ -272,7 +325,7 @@ class WorkflowStageDefinition(BaseModel):
     bootstrap_enabled: bool = True
     artifacts: list[ArtifactRequirement] = Field(default_factory=list, max_length=32)
 
-    @field_validator("title", "layer")
+    @field_validator("layer")
     @classmethod
     def validate_text(cls, value: str | None) -> str | None:
         if value is None:
@@ -284,12 +337,15 @@ class WorkflowStageDefinition(BaseModel):
     @model_validator(mode="after")
     def validate_goal_and_outputs(self):
         self.goal = self.goal.strip()
+        title_source = self.goal
         if not self.goal:
             if not self.artifacts:
                 raise ValueError("a stage needs a goal or at least one required artifact")
             self.goal = "Produce the required outputs: " + ", ".join(
                 item.label or item.path for item in self.artifacts
             ) + "."
+            title_source = self.artifacts[0].label or self.artifacts[0].path
+        self.title = normalize_optional_text(self.title) or derive_title(title_source)
         paths = [_artifact_collision_key(item.path) for item in self.artifacts]
         if len(set(paths)) != len(paths):
             raise ValueError("artifact paths must be unique within a stage")
@@ -299,22 +355,30 @@ class WorkflowStageDefinition(BaseModel):
 class CreateWorkflowRequest(BaseModel):
     model_config = {"extra": "forbid"}
 
-    title: str
-    origin: str
+    title: str | None = None
+    origin: str | None = None
     stages: list[WorkflowStageDefinition] = Field(min_length=1, max_length=128)
 
-    @field_validator("title", "origin")
+    @model_validator(mode="before")
     @classmethod
-    def validate_text(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("must not be empty")
-        return value.strip()
+    def assign_missing_stage_ids(cls, value):
+        if not isinstance(value, dict) or not isinstance(value.get("stages"), list):
+            return value
+        stages = []
+        for index, item in enumerate(value["stages"], 1):
+            if isinstance(item, dict) and "id" not in item:
+                item = {**item, "id": f"stage_{index}"}
+            elif isinstance(item, WorkflowStageDefinition) and "id" not in item.model_fields_set:
+                item = item.model_copy(update={"id": f"stage_{index}"})
+            stages.append(item)
+        return {**value, "stages": stages}
 
     @model_validator(mode="after")
     def validate_dependencies(self):
         ids = {stage.id for stage in self.stages}
         if len(ids) != len(self.stages):
-            raise ValueError("stage ids must be unique")
+            duplicates = sorted(stage_id for stage_id in ids if sum(stage.id == stage_id for stage in self.stages) > 1)
+            raise ValueError(f"duplicate stage IDs: {', '.join(duplicates)}; provide distinct explicit IDs when position-generated IDs collide")
         artifact_paths = [_artifact_collision_key(artifact.path) for stage in self.stages for artifact in stage.artifacts]
         if len(set(artifact_paths)) != len(artifact_paths):
             raise ValueError("artifact paths must be unique across workflow stages")
@@ -331,6 +395,8 @@ class CreateWorkflowRequest(BaseModel):
                 raise ValueError("stage dependencies must not contain a cycle")
             resolved.update(ready)
             remaining = {key: dependencies for key, dependencies in remaining.items() if key not in ready}
+        self.title = normalize_optional_text(self.title) or derive_title(self.stages[0].title)
+        self.origin = normalize_optional_text(self.origin)
         return self
 
 

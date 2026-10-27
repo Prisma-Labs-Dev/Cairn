@@ -42,6 +42,8 @@ explanations, and artifact downloads.
 
 See [Staged workflows](docs/workflows.md) for the creation flow, a research-to-manuscript
 example, API usage, file retention, and current limits. Existing single-project runs still work.
+For agents, [JSON/YAML creation](docs/agent-creation.md) supports goal-only projects and
+stage-only workflow definitions. Titles and starting context are optional.
 
 <p align="center">
   <a href="https://www.bilibili.com/video/BV1a8R5BhEVi/" target="_blank" rel="noopener noreferrer">

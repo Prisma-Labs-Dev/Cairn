@@ -6,11 +6,16 @@ import uvicorn
 from cairn.dispatcher.logging import configure_logging
 from cairn.dispatcher.scheduler.loop import DispatcherLoop
 from cairn.server import db
+from cairn.creation_cli import project, workflow
 
 
 @click.group()
 def main():
     """Cairn - Fact-graph based collaborative exploration protocol."""
+
+
+main.add_command(project)
+main.add_command(workflow)
 
 
 @main.command()

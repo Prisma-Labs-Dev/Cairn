@@ -18,6 +18,7 @@ from cairn.server.models import (
     ReasonClaimRequest,
     UpdateProjectTitleRequest,
     UpdateProjectStatusRequest,
+    UpdateMetadataRequest,
 )
 from cairn.server.services import (
     build_intents,
@@ -38,6 +39,7 @@ from cairn.server.services import (
     utcnow,
     validate_facts_exist,
     validate_goal_not_in_sources,
+    update_project_metadata,
 )
 
 router = APIRouter(tags=["projects"])
@@ -131,22 +133,27 @@ def get_project(project_id: str):
         expire_workers(conn, project_id)
         expire_reason_leases(conn, project_id)
         row = get_project_or_404(conn, project_id)
+        return _project_detail(conn, row)
 
-        facts = conn.execute(
-            "SELECT * FROM facts WHERE project_id = ?", (project_id,)
-        ).fetchall()
-        hints = conn.execute(
-            "SELECT * FROM hints WHERE project_id = ? ORDER BY created_at",
-            (project_id,),
-        ).fetchall()
 
-        return ProjectDetail(
-            project=project_meta_from_row(row),
-            facts=[Fact(**dict(f)) for f in facts],
-            intents=build_intents(conn, project_id),
-            hints=[Hint(**dict(h)) for h in hints],
-            required_artifacts=requirements_for_project(conn, project_id),
-        )
+def _project_detail(conn, row) -> ProjectDetail:
+    project_id = row["id"]
+    facts = conn.execute("SELECT * FROM facts WHERE project_id = ?", (project_id,)).fetchall()
+    hints = conn.execute("SELECT * FROM hints WHERE project_id = ? ORDER BY created_at", (project_id,)).fetchall()
+    return ProjectDetail(
+        project=project_meta_from_row(row),
+        facts=[Fact(**dict(f)) for f in facts],
+        intents=build_intents(conn, project_id),
+        hints=[Hint(**dict(h)) for h in hints],
+        required_artifacts=requirements_for_project(conn, project_id),
+    )
+
+
+@router.patch("/projects/{project_id}/metadata", response_model=ProjectDetail)
+def refine_project_metadata(project_id: str, body: UpdateMetadataRequest):
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        return _project_detail(conn, update_project_metadata(conn, project_id, body))
 
 
 @router.delete("/projects/{project_id}", status_code=204)

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 
-from cairn.server.models import Intent, ProjectMeta, ProjectReason
+from cairn.server.models import Intent, ProjectMeta, ProjectReason, UpdateMetadataRequest
 
 def utcnow() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -205,6 +205,34 @@ def project_meta_from_row(row: sqlite3.Row) -> ProjectMeta:
         workflow_id=row["workflow_id"],
         workflow_stage_id=row["workflow_stage_id"],
     )
+
+
+def update_project_metadata(
+    conn: sqlite3.Connection, project_id: str, body: UpdateMetadataRequest,
+) -> sqlite3.Row:
+    """Refine current-stage metadata without rewriting completed source history."""
+    check_project_active(conn, project_id)
+    if body.title is not None:
+        conn.execute("UPDATE projects SET title = ? WHERE id = ?", (body.title, project_id))
+    if body.origin is not None:
+        origin = conn.execute(
+            "SELECT description FROM facts WHERE project_id = ? AND id = 'origin'", (project_id,),
+        ).fetchone()
+        if origin is None:
+            raise HTTPException(409, "Project is missing its origin record")
+        if origin["description"] != body.origin:
+            conn.execute("UPDATE facts SET description = ? WHERE project_id = ? AND id = 'origin'",
+                         (body.origin, project_id))
+            # Origin edits do not change fact counts. A fresh hint makes the
+            # scheduler revisit the current graph without repeating the origin.
+            hint_id = next_hint_id(conn, project_id)
+            conn.execute(
+                "INSERT INTO hints(id,project_id,content,creator,created_at) VALUES(?,?,?,?,?)",
+                (hint_id, project_id,
+                 "The project's starting context was updated. Re-read the current origin fact before continuing.",
+                 "metadata", utcnow()),
+            )
+    return get_project_or_404(conn, project_id)
 
 
 def clear_project_reason(conn: sqlite3.Connection, project_id: str) -> None:
