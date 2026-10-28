@@ -258,27 +258,72 @@ def test_not_applicable_choice_allows_only_authored_absence_gates(client):
     """)
 
 
-def test_workflow_resize_refits_untouched_view_but_preserves_manual_camera_and_disposes():
-    run_ui("""
-    const app=waylineApp();app.view='workflow';app.workflow={workflow:{id:'one',status:'active'},stages:[],collections:[]};
-    const timers=[];const observers=[];const graphs=[];const listeners={};let size={width:880,height:480};
-    global.document={getElementById:()=>({getBoundingClientRect:()=>size,addEventListener:(name,fn)=>listeners[name]=fn,removeEventListener:(name)=>delete listeners[name]})};
-    global.setTimeout=fn=>{timers.push(fn);return timers.length;};global.clearTimeout=()=>{};
+def test_workflow_resize_refits_after_node_tap_and_preserves_manual_world_center():
+    cytoscape = Path(__file__).parents[1] / "src/wayline/server/static/vendor/cytoscape.min.js"
+    run_ui("const realCy=require(" + json.dumps(str(cytoscape)) + ");" + """
+    const app=waylineApp();app.view='workflow';app.selectedWorkflowId='one';
+    app.workflow={workflow:{id:'one',status:'completed'},stages:[{id:'a',title:'First goal',status:'completed',depends_on:[]},{id:'b',title:'Second goal',status:'completed',depends_on:['a']}],collections:[]};
+    const timers=[],observers=[],graphs=[];let size={width:840,height:800};
+    global.document={getElementById:()=>({getBoundingClientRect:()=>size})};
+    const nativeTimeout=global.setTimeout;
+    global.setTimeout=(fn,delay,...args)=>{if(delay===80){timers.push(fn);return 0;}return nativeTimeout(fn,delay,...args);};
     global.ResizeObserver=class {constructor(fn){this.update=fn;observers.push(this);}observe(){}disconnect(){this.disconnected=true;}};
-    global.cytoscape=options=>{
-      const graph={fits:0,resizes:0,on(){},elements:()=>({removeClass(){}}),getElementById:()=>({addClass(){}}),resize(){this.resizes++;},fit(){this.fits++;},destroy(){this.destroyed=true;}};
-      graphs.push(graph);assert.equal(options.layout.animate,false);return graph;
+    global.cytoscape=options=>{const graph=realCy({...options,container:undefined,headless:true,styleEnabled:true,layout:{name:'preset'}});graphs.push(graph);return graph;};
+    app.initWorkflowGraph();const graph=app.workflowCy;
+    graph.getElementById('stage:a').position({x:120,y:80});graph.getElementById('stage:b').position({x:120,y:240});
+    const checkCentered=()=>{
+      const bounds=graph.elements().boundingBox(), pan=graph.pan(),zoom=graph.zoom();
+      assert.ok(Math.abs((bounds.x1+bounds.x2)/2*zoom+pan.x-size.width/2)<0.01);
+      assert.ok(Math.abs((bounds.y1+bounds.y2)/2*zoom+pan.y-size.height/2)<0.01);
+      assert.ok(zoom<=1.05,'Small graphs cannot grow into giant nodes');
     };
-    app.cy={destroy(){throw Error('Project graph is a separate instance');}};
-    app.initWorkflowGraph();observers[0].update();timers[0]();assert.equal(graphs[0].fits,1);
-    observers[0].update();assert.equal(timers.length,1,'Repeated same-size notifications do not change camera');
-    size={width:390,height:220};observers[0].update();timers[1]();assert.equal(graphs[0].fits,2,'Untouched desktop view refits on phone');
-    listeners.wheel();size={width:880,height:480};observers[0].update();timers[2]();assert.equal(graphs[0].fits,2,'Manual camera is retained after resize');
+    observers[0].update();timers[0]();checkCentered();
+    observers[0].update();assert.equal(timers.length,1,'Repeated dimensions do not move the camera');
+    graph.getElementById('stage:a').emit('tap');
+    assert.equal(app.workflowInspectorOpen,true);assert.equal(app.workflowCameraTouched,false,'Node selection is not camera manipulation');
+    size={width:720,height:1000};observers[0].update();timers[1]();checkCentered();
+    size={width:390,height:760};observers[0].update();timers[2]();checkCentered();
+    graph.zoom(1.6);graph.pan({x:112,y:224});graph.emit('dragpan');
+    const before={x:(size.width/2-graph.pan('x'))/graph.zoom(),y:(size.height/2-graph.pan('y'))/graph.zoom()};
+    size={width:1280,height:660};observers[0].update();timers[3]();
+    assert.equal(graph.zoom(),1.6,'Manual zoom is retained');
+    assert.ok(Math.abs((size.width/2-graph.pan('x'))/graph.zoom()-before.x)<0.01);
+    assert.ok(Math.abs((size.height/2-graph.pan('y'))/graph.zoom()-before.y)<0.01);
+    size={width:920,height:660};observers[0].update();timers[4]();
+    assert.equal(graph.zoom(),1.6,'Docking details preserves a manually chosen camera');
     size={width:900,height:500};observers[0].update();app.disposeWorkflowGraph();
-    assert.equal(graphs[0].destroyed,true);assert.equal(observers[0].disconnected,true);
-    assert.deepEqual(Object.keys(listeners),[]);
-    app.initWorkflowGraph();timers[3]();assert.equal(graphs[1].resizes,0,'Old pending callback cannot resize replacement workflow');
-    app.disposeWorkflowGraph();
+    assert.equal(graph.destroyed(),true);assert.equal(observers[0].disconnected,true);
+    app.initWorkflowGraph();const replacement=app.workflowCy;
+    timers[5]();assert.equal(app._workflowViewportSize,null,'Stale observer cannot move the replacement graph');
+    app.disposeWorkflowGraph();assert.equal(replacement.destroyed(),true);
+    """)
+
+
+def test_workflow_inspector_is_on_demand_closable_and_keeps_selection():
+    run_ui("""
+    const app=waylineApp();app.selectedWorkflowId='one';app.workflowMenuOpen=true;
+    app.workflow={workflow:{id:'one'},stages:[{id:'goal',title:'Goal',status:'active',depends_on:[]}],collections:[]};
+    let focused='',returnFocused=0;
+    const origin={isConnected:true,focus(){returnFocused++;}};
+    const close={focus(){focused='close';},getClientRects:()=>[{}]};
+    const last={focus(){focused='last';},getClientRects:()=>[{}]};
+    global.document={activeElement:origin};app.$nextTick=fn=>fn();
+    app.$refs={workflowInspectorClose:close,workflowScroll:{scrollTop:12,querySelectorAll:()=>[close,last]}};
+    assert.equal(app.workflowInspectorOpen,false);
+    app.selectWorkflowRecord('stage','goal');
+    assert.equal(app.workflowInspectorOpen,true);assert.equal(app.workflowMenuOpen,false);assert.equal(focused,'close');
+    app.workflowInspectorOverlay=true;document.activeElement=last;let prevented=0;
+    app.workflowInspectorKeydown({key:'Tab',shiftKey:false,preventDefault(){prevented++;}});
+    assert.equal(focused,'close');assert.equal(prevented,1);
+    document.activeElement=close;
+    app.workflowInspectorKeydown({key:'Tab',shiftKey:true,preventDefault(){prevented++;}});
+    assert.equal(focused,'last');assert.equal(prevented,2);
+    app.closeWorkflowInspector();assert.equal(app.workflowInspectorOpen,false);assert.equal(returnFocused,1);
+    assert.deepEqual(app.workflowSelectedRecord,{type:'stage',id:'goal'});
+    assert.deepEqual(app.workflowRecordSelections.one,{type:'stage',id:'goal'});
+    app.ensureWorkflowSelection({nodes:[],edges:[]});
+    assert.equal(app.workflowInspectorOpen,false,'An invalidated record cannot open a hidden drawer');
+    app.selectWorkflowRecord('overview','overview');assert.equal(app.workflowInspectorOpen,true);
     """)
 
 
@@ -461,4 +506,69 @@ def test_inline_review_read_failure_can_retry_and_preserves_full_read_only_evide
     assert.equal(app.reviewDetails['pending-claim'].status,'pending');
     await app.loadWorkflowStageReview(stage);
     assert.equal(app.reviewDetails['pending-claim'],undefined,'Evidence panel can close without changing review state');
+    """)
+
+
+def test_escape_dispatch_keeps_underlying_inspector_when_other_dialog_closes_first():
+    # Exercise the actual Alpine directive bodies with real dispatched key events.
+    # EventTarget supplies listener ordering/target; closest supplies dialog ancestry.
+    import re
+    from test_agent_session_ui import HTML
+
+    html = HTML.read_text()
+    workflow_escape = re.search(r'@keydown.escape.window="([^"]+)"', html[html.index('<!-- Workflow view -->'):]).group(1)
+    sessions_escape = re.search(r'@keydown.escape.window="([^"]+)"', html[html.index('<div x-show="agentSessions.open"'):]).group(1)
+    retry_escape = re.search(r'@keydown.escape.stop="([^"]+)"', html[html.index('<!-- Retry an exhausted choice -->'):]).group(1)
+    run_ui("const directives=" + json.dumps([workflow_escape, sessions_escape, retry_escape]) + ";" + """
+    const app=waylineApp();app.view='workflow';app.workflowInspectorOpen=true;
+    const [workflowEscape,sessionsEscape,retryEscape]=directives.map(source=>new Function('$event','with(this){'+source+'}'));
+    const inspector={},sessions={},retry={};let focus='retry reason';
+    const trigger={isConnected:true,focus(){focus='retry trigger';}};
+    app.$nextTick=fn=>fn();
+    app.$refs={workflowScroll:inspector,workflowMenuButton:{focus(){focus='menu';}},workflowInspectorClose:{focus(){focus='inspector close';}}};
+    const key=()=>{const event=new Event('keydown',{bubbles:true,cancelable:true});Object.defineProperty(event,'key',{value:'Escape'});return event;};
+    const inside=dialog=>{const target=new EventTarget();target.closest=selector=>{assert.equal(selector,'[role="dialog"][aria-modal="true"]');return dialog;};return target;};
+    const sessionTarget=inside(sessions);app.agentSessions.open=true;
+    sessionTarget.addEventListener('keydown',event=>sessionsEscape.call(app,event));
+    let laterWorkflowCalls=0;
+    sessionTarget.addEventListener('keydown',event=>{laterWorkflowCalls++;workflowEscape.call(app,event);});
+    sessionTarget.dispatchEvent(key());
+    assert.equal(laterWorkflowCalls,0,'The Sessions listener consumes a handled Escape before later window listeners');
+    const closedSessionTarget=inside(sessions);
+    closedSessionTarget.addEventListener('keydown',event=>workflowEscape.call(app,event));closedSessionTarget.dispatchEvent(key());
+    assert.equal(app.agentSessions.open,false);assert.equal(app.workflowInspectorOpen,true,'The later workflow listener must use the event origin, not the now-closed Sessions flag');
+    const headerTarget=inside(null);
+    headerTarget.addEventListener('keydown',event=>workflowEscape.call(app,event));
+    app.showWorkflowDeleteModal=true;headerTarget.dispatchEvent(key());
+    assert.equal(app.workflowInspectorOpen,true,'An unfocused Delete dialog still protects the inspector');app.showWorkflowDeleteModal=false;
+    global.document={querySelectorAll:()=>[{getClientRects:()=>[{}]}]};headerTarget.dispatchEvent(key());
+    assert.equal(app.workflowInspectorOpen,true,'Other visible modal dialogs protect the inspector even when the opener keeps focus');document.querySelectorAll=()=>[];
+    app.workflow={workflow:{id:'one',status:'stopped'},stages:[{id:'choose',choice_error:'Fixture alternatives exhausted'}]};
+    document.activeElement=trigger;app.$refs.choiceRetryReason={focus(){focus='retry reason';}};
+    app.openChoiceRetry({id:'alpha',title:'Alpha',generated_by_stage_id:'choose',option_state:'unavailable'});
+    assert.equal(app.showChoiceRetryModal,true);assert.equal(focus,'retry reason');
+    const retryTarget=inside(retry);app.choiceRetrySaving=true;
+    retryTarget.addEventListener('keydown',event=>{retryEscape.call(app,event);event.stopPropagation();});
+    retryTarget.addEventListener('keydown',event=>workflowEscape.call(app,event));
+    retryTarget.dispatchEvent(key());
+    assert.equal(app.showChoiceRetryModal,true);assert.equal(app.workflowInspectorOpen,true);assert.equal(focus,'retry reason','Saving keeps focus in the live retry dialog');
+    app.choiceRetrySaving=false;retryTarget.dispatchEvent(key());
+    assert.equal(app.showChoiceRetryModal,false);assert.equal(app.workflowInspectorOpen,true);assert.equal(focus,'retry trigger');
+    const menuTarget=inside(null);app.workflowMenuOpen=true;
+    menuTarget.addEventListener('keydown',event=>workflowEscape.call(app,event));menuTarget.dispatchEvent(key());
+    assert.equal(app.workflowMenuOpen,false);assert.equal(app.workflowInspectorOpen,true);assert.equal(focus,'menu');
+    const inspectorTarget=inside(inspector);app._workflowInspectorReturnFocus=trigger;
+    inspectorTarget.addEventListener('keydown',event=>workflowEscape.call(app,event));inspectorTarget.dispatchEvent(key());
+    assert.equal(app.workflowInspectorOpen,false,'Escape originating in the inspector still closes it');
+    """)
+
+
+def test_workflow_drawer_uses_css_media_query_at_fractional_widths():
+    run_ui("""
+    const app=waylineApp();let matches=false,queries=[];
+    global.window={innerWidth:959.5,matchMedia(query){queries.push(query);return {matches};}};
+    app.syncWorkflowInspectorViewport();assert.equal(app.workflowInspectorOverlay,false,'959.5px is outside CSS max-width959px despite being below960');
+    matches=true;window.innerWidth=959;app.syncWorkflowInspectorViewport();assert.equal(app.workflowInspectorOverlay,true);
+    matches=false;window.innerWidth=960;app.syncWorkflowInspectorViewport();assert.equal(app.workflowInspectorOverlay,false);
+    assert.deepEqual(queries,['(max-width: 959px)','(max-width: 959px)','(max-width: 959px)']);
     """)
