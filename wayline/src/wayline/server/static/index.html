@@ -17,6 +17,7 @@
 <style>
   [x-cloak] { display: none !important; }
   #cy { width: 100%; height: 100%; }
+  #workflowCy { width: 100%; min-height: 0; }
   @media (max-width: 767px) {
     #graphHeader { flex-wrap: wrap; gap: 8px; }
     #graphHeader .title-action-trigger { flex: 1 0 calc(100% - 48px); }
@@ -24,6 +25,9 @@
     #graphHeader .graph-counts { order: 2; }
     #graphHeader .graph-preferences { order: 2; margin-left: auto; }
     #graphHeader .graph-actions { order: 3; width: 100%; flex-wrap: wrap; }
+    #workflowLayout { flex-direction: column; }
+    #workflowLayout .workflow-canvas { min-height: min(320px,45vh); flex-basis: 62%; }
+    #workflowLayout .workflow-inspector { width: 100%; flex-basis: 38%; border-left: 0; border-top: 1px solid #e2e8f0; }
     #graphLayout { flex-direction: column; min-height: 0; }
     #graphLayout .graph-canvas { min-height: 220px; }
     #graphLayout .graph-panel-resize { display: none; }
@@ -576,25 +580,46 @@
         <button x-show="workflow.workflow.deleted_at" @click="restoreWorkflow(workflow.workflow.id)" :disabled="!!workflowActionId" class="px-3 py-1.5 rounded-lg border border-brand-200 text-xs text-brand-600 hover:bg-brand-50 disabled:opacity-40">Restore</button>
       </div>
     </header>
-    <main x-ref="workflowScroll" @scroll.passive="rememberWorkflowScroll()" class="flex-1 overflow-y-auto p-4 sm:p-6">
-      <div class="max-w-5xl mx-auto space-y-5">
-        <section x-show="workflow.workflow.deleted_at" class="rounded-xl border border-amber-200 bg-amber-50 p-4"><h2 class="text-sm font-semibold text-amber-800">This workflow is in Trash</h2><p class="text-xs text-amber-800 mt-1">Its graphs, files, and history remain available to read. Restore the workflow before changing or resuming it.</p><button @click="openWorkflowTrash()" class="text-xs font-medium text-brand-600 hover:text-brand-700 mt-2">Open Trash</button></section>
-        <section class="bg-white border border-slate-200 rounded-2xl p-5">
+    <main class="flex-1 min-h-0 flex flex-col overflow-hidden">
+        <section x-show="workflow.workflow.deleted_at" class="border-b border-amber-200 bg-amber-50 px-4 py-3"><h2 class="text-sm font-semibold text-amber-800">This workflow is in Trash</h2><p class="text-xs text-amber-800 mt-1">Its graphs, files, and history remain available to read. Restore the workflow before changing or resuming it.</p><button @click="openWorkflowTrash()" class="text-xs font-medium text-brand-600 hover:text-brand-700 mt-2">Open Trash</button></section>
+        <section class="bg-white border-b border-slate-200 px-4 py-3">
           <div class="flex flex-wrap justify-between items-center gap-3">
             <h2 class="text-sm font-semibold text-slate-700" x-text="`${workflowRequiredStages().filter(stage => stage.status === 'completed').length} of ${workflowRequiredTotal()} applicable goals completed`"></h2>
-            <span class="text-xs text-slate-500" x-text="workflow.workflow.status === 'completed' ? 'Workflow complete' : 'Each stage waits for all its prerequisites'"></span>
+            <span class="hidden sm:inline text-xs text-slate-500" x-text="workflow.workflow.status === 'completed' ? 'Workflow complete' : 'Each stage waits for all its prerequisites'"></span>
           </div>
           <div class="h-2 bg-slate-100 rounded-full mt-3 overflow-hidden"><div class="h-full bg-brand-500 rounded-full transition-all" :style="`width:${workflowProgress()}%`"></div></div>
-          <p x-show="workflowNotApplicableStages().length" class="text-xs text-slate-500 mt-3" x-text="`${workflowNotApplicableStages().length} stage${workflowNotApplicableStages().length === 1 ? '' : 's'} did not apply. Their conditions and reasons remain below.`"></p>
-          <details x-show="workflow.workflow.origin" class="mt-4 text-sm text-slate-600"><summary class="cursor-pointer text-xs font-medium text-slate-500">Starting context</summary><p class="mt-2 whitespace-pre-wrap break-words" x-text="workflow.workflow.origin"></p></details>
+          <p x-show="workflowNotApplicableStages().length" class="text-xs text-slate-500 mt-3" x-text="`${workflowNotApplicableStages().length} stage${workflowNotApplicableStages().length === 1 ? '' : 's'} did not apply. Their conditions and reasons remain in the inspector.`"></p>
           <p x-show="workflow.workflow.status === 'stopped'" class="text-xs text-amber-700 mt-3">Work has stopped. Completed goals and findings are retained.</p>
         </section>
-        <template x-if="workflow.collections?.length">
+      <div id="workflowLayout" class="flex-1 min-h-0 flex overflow-hidden">
+        <section class="workflow-canvas flex-1 min-w-0 relative flex flex-col bg-slate-50" aria-label="Workflow structure">
+          <div class="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-slate-200 bg-white shrink-0">
+            <div class="inline-flex rounded-lg border border-slate-200 p-0.5"><button @click="setWorkflowDisplayMode('graph')" :aria-pressed="workflowDisplayMode === 'graph'" class="px-2.5 py-1 text-xs rounded-md" :class="workflowDisplayMode === 'graph' ? 'bg-brand-50 text-brand-700' : 'text-slate-500'">Graph</button><button @click="setWorkflowDisplayMode('list')" :aria-pressed="workflowDisplayMode === 'list'" class="px-2.5 py-1 text-xs rounded-md" :class="workflowDisplayMode === 'list' ? 'bg-brand-50 text-brand-700' : 'text-slate-500'">Stages and dependencies</button></div>
+            <button @click="fitWorkflowGraph()" x-show="workflowDisplayMode === 'graph' && !workflowGraphError" class="px-2.5 py-1 border border-slate-200 rounded-lg text-xs text-slate-600">Fit graph</button>
+            <div x-show="workflowDisplayMode === 'graph' && !workflowGraphError" class="inline-flex gap-1"><button @click="zoomWorkflowGraph(1.3)" aria-label="Zoom in workflow graph" class="h-7 w-7 border border-slate-200 rounded-lg text-sm text-slate-600">+</button><button @click="zoomWorkflowGraph(1/1.3)" aria-label="Zoom out workflow graph" class="h-7 w-7 border border-slate-200 rounded-lg text-sm text-slate-600">−</button></div>
+            <label x-show="workflowDisplayMode === 'graph' && !workflowGraphError" class="text-xs text-slate-500">Layout<select aria-label="Workflow graph layout" x-model="workflowLayoutMode" @change="applyWorkflowLayout()" class="ml-1 h-7 rounded-lg border border-slate-200 bg-white text-xs"><option value="dagre_tb">Dagre ↓</option><option value="dagre_lr">Dagre →</option><option value="klay_tb">Klay ↓</option><option value="klay_lr">Klay →</option><option value="elk_tb">ELK ↓</option><option value="elk_lr">ELK →</option></select></label>
+            <button @click="selectWorkflowRecord('overview','overview')" class="ml-auto px-2.5 py-1 border border-slate-200 rounded-lg text-xs text-brand-600">Workflow outputs</button>
+          </div>
+          <p x-show="workflowGraphError" role="alert" class="px-4 py-2 text-xs text-amber-700 bg-amber-50" x-text="workflowGraphError"></p>
+          <p x-show="workflowTopologyChanged && workflowDisplayMode === 'graph'" class="px-4 py-2 text-[11px] text-brand-600 bg-brand-50">Branches changed. Your view is preserved. Use Fit graph to include them.</p>
+          <div x-show="workflowDisplayMode === 'graph' && !workflowGraphError" id="workflowCy" class="flex-1 min-h-0" role="img" aria-label="Workflow stage graph. Use Stages and dependencies for keyboard navigation."></div>
+          <div x-show="workflowDisplayMode === 'list' || workflowGraphError" class="flex-1 overflow-y-auto p-4 space-y-4">
+            <section aria-label="Workflow stages"><h2 class="text-xs font-semibold text-slate-600 mb-2">Stages</h2><div class="space-y-2"><template x-for="stage in workflowDisplayStages()" :key="stage.id"><button @click="selectWorkflowRecord('stage',stage.id)" :aria-pressed="workflowSelectedRecord.type === 'stage' && workflowSelectedRecord.id === stage.id" class="w-full text-left rounded-xl border border-slate-200 bg-white px-3 py-2 hover:border-brand-300"><span class="block text-xs font-medium text-slate-700 break-words" x-text="stage.title"></span><span class="block text-[11px] mt-1 text-slate-500" x-text="workflowStageGraphStatus(stage)"></span></button></template></div></section>
+            <section x-show="workflowGraphElements().edges.length" aria-label="Workflow dependencies"><h2 class="text-xs font-semibold text-slate-600 mb-2">Dependencies and branch gates</h2><div class="space-y-2"><template x-for="edge in workflowGraphElements().edges" :key="edge.data.id"><button @click="selectWorkflowRecord('edge',edge.data.id)" class="block w-full text-left rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 break-words" x-text="workflowGraphEdgeLabel(edge.data)"></button></template></div></section>
+            <section x-show="workflow.collections?.length" aria-label="Workflow collections"><h2 class="text-xs font-semibold text-slate-600 mb-2">Collections</h2><template x-for="collection in workflow.collections || []" :key="collection.name"><button @click="selectWorkflowRecord('collection',collection.name)" class="block text-left text-xs text-brand-600 py-2" x-text="`${collection.name} · ${workflowCollectionStatus(collection)}`"></button></template></section>
+          </div>
+          <p class="px-3 py-2 border-t border-slate-200 text-[10px] text-slate-500 bg-white shrink-0">Stages are goals; arrows explain prerequisites. Active means admitted work, not a confirmed running process.</p>
+        </section>
+        <aside x-ref="workflowScroll" @scroll.passive="rememberWorkflowScroll()" class="workflow-inspector w-[25rem] min-w-0 shrink-0 border-l border-slate-200 bg-slate-50/50 overflow-y-auto p-4 space-y-4" aria-label="Workflow inspector">
+          <template x-if="workflowSelectedRecord.type === 'overview'"><section class="rounded-2xl border border-slate-200 bg-white p-5"><h2 class="text-sm font-semibold text-slate-700">Workflow outputs</h2><details x-show="workflow.workflow.origin" class="mt-3 text-xs text-slate-600"><summary class="cursor-pointer font-medium text-slate-500">Starting context</summary><p class="mt-2 whitespace-pre-wrap break-words" x-text="workflow.workflow.origin"></p></details><p class="text-xs text-slate-500 mt-3">Select a stage to read its goal, evidence, completion record and sessions.</p><p x-show="!workflowOutputArtifacts().length" class="text-xs text-slate-500 mt-4">No collected workflow artifacts yet. Recorded findings remain in each stage.</p><div class="space-y-3 mt-4"><template x-for="item in workflowOutputArtifacts()" :key="item.artifact.id"><a :href="item.artifact.download_url" class="block rounded-xl border border-slate-200 p-3 text-xs text-brand-600 hover:bg-brand-50"><span class="block font-medium break-words" x-text="item.artifact.label || item.artifact.path"></span><span class="block text-[11px] text-slate-500 mt-1 break-words" x-text="`${item.stage.title} · ${formatArtifactSize(item.artifact.size)}`"></span></a></template></div><p class="text-[11px] text-slate-400 mt-4">Worker completion and collected files remain separate from independent verification.</p></section></template>
+          <template x-if="workflowSelectedGraphEdge()"><section class="rounded-2xl border border-slate-200 bg-white p-5"><p class="text-[10px] uppercase tracking-wide text-slate-400">Dependency / branch gate</p><h2 class="text-sm font-semibold text-slate-700 mt-2 break-words" x-text="workflowGraphEdgeLabel(workflowSelectedGraphEdge())"></h2><p class="text-xs text-slate-600 mt-3 whitespace-pre-wrap break-words" x-text="workflowSelectedGraphEdge().explanation"></p><p x-show="workflowSelectedGraphEdge().condition" class="text-xs text-slate-600 mt-3 break-words" x-text="`Condition: ${workflowSelectedGraphEdge().condition}`"></p><p x-show="workflowSelectedGraphEdge().allowAbsent" class="text-xs text-slate-500 mt-3">A not-applicable source is allowed by this dependency.</p><p x-show="workflowSelectedGraphEdge().reason" class="text-xs text-amber-700 mt-3 break-words" x-text="workflowSelectedGraphEdge().reason"></p><section x-show="workflowSelectedGraphEdge().destinationOutcome" class="mt-3 rounded-lg border border-slate-200 p-3"><h3 class="text-xs font-medium text-slate-600">Destination outcome</h3><p class="text-xs text-slate-600 mt-2 break-words" x-text="workflowSelectedGraphEdge().destinationOutcome"></p><p class="text-[11px] text-slate-500 mt-2">This is the destination's recorded outcome, not a cause attributed to this individual arrow.</p></section><div class="flex flex-wrap gap-3 mt-4"><button @click="selectWorkflowGraphNode(workflowSelectedGraphEdge().source)" class="text-xs text-brand-600">Read source</button><button @click="selectWorkflowGraphNode(workflowSelectedGraphEdge().target)" class="text-xs text-brand-600">Read destination</button></div></section></template>
+          <template x-if="workflowSelectedRecord.type === 'choice'"><section class="rounded-2xl border border-slate-200 bg-white p-5"><h2 class="text-sm font-semibold text-slate-700">Choose-one gate</h2><p class="text-xs text-slate-600 mt-3" x-text="workflow.stages.find(stage => stage.id === workflowSelectedRecord.id)?.status === 'not_applicable' ? 'The proposal did not apply. Dependencies that explicitly allow its absence may proceed without selecting an option.' : 'The proposal and one selected option must succeed before later stages start. Unselected, unavailable and skipped alternatives are retained without becoming required goals.'"></p><button @click="selectWorkflowRecord('stage',workflowSelectedRecord.id)" class="text-xs text-brand-600 mt-4">Read proposal and selection reasons</button></section></template>
+        <template x-if="workflowInspectorCollections().length">
           <section class="rounded-2xl border border-slate-200 bg-white p-5">
             <h2 class="text-sm font-semibold text-slate-700">Result collections</h2>
             <p class="text-xs text-slate-500 mt-1">Recorded members and their outputs. Earlier agent context stays available in each stage.</p>
-            <template x-for="collection in workflow.collections" :key="`${workflow.workflow.id}:${collection.name}`">
-              <details class="mt-3 rounded-xl border border-slate-100 p-3">
+            <template x-for="collection in workflowInspectorCollections()" :key="`${workflow.workflow.id}:${collection.name}`">
+              <details open class="mt-3 rounded-xl border border-slate-100 p-3">
                 <summary class="cursor-pointer text-xs text-slate-600 break-words" x-text="`${collection.name} · ${collection.members?.length || 0} members · ${collection.not_applicable_reason ? 'not applicable' : collection.ready ? 'ready' : collection.sealed ? 'waiting for members' : 'waiting for discovery'}`"></summary>
                 <p class="text-[11px] text-slate-400 mt-2" x-text="`Produced by ${workflowStageTitle(collection.emitter_stage_id)}`"></p>
                 <p x-show="collection.not_applicable_reason" class="text-xs text-slate-500 mt-2 break-words" x-text="collection.not_applicable_reason"></p>
@@ -612,12 +637,11 @@
             </template>
           </section>
         </template>
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <template x-for="(stage, index) in workflowDisplayStages()" :key="`${workflow.workflow.id}:${stage.id}`">
-          <article class="rounded-2xl border bg-white overflow-hidden" :class="[stage.status === 'active' ? 'border-brand-300 shadow-sm' : 'border-slate-200', stage.generated_by_stage_id ? '' : 'lg:col-span-2']">
+        <template x-for="stage in workflowInspectorStages()" :key="`${workflow.workflow.id}:${stage.id}`">
+          <article class="rounded-2xl border bg-white overflow-hidden" :class="[stage.status === 'active' ? 'border-brand-300 shadow-sm' : 'border-slate-200', '']">
             <div class="p-5">
               <div class="flex items-start gap-3">
-                <span class="h-8 w-8 shrink-0 rounded-full flex items-center justify-center text-xs font-semibold" :class="stage.status === 'completed' ? 'bg-teal-50 text-teal-700' : stage.status === 'active' ? 'bg-brand-50 text-brand-600' : 'bg-slate-100 text-slate-500'" x-text="stage.status === 'completed' ? '✓' : index + 1"></span>
+                <span class="h-8 w-8 shrink-0 rounded-full flex items-center justify-center text-xs font-semibold" :class="stage.status === 'completed' ? 'bg-teal-50 text-teal-700' : stage.status === 'active' ? 'bg-brand-50 text-brand-600' : 'bg-slate-100 text-slate-500'" x-text="stage.status === 'completed' ? '✓' : workflowStageIndex(stage.id)"></span>
                 <div class="min-w-0 flex-1">
                   <div class="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wide text-slate-400 mb-1"><span x-text="stage.kind"></span><span x-show="stage.layer" x-text="stage.layer"></span></div>
                   <h2 class="font-semibold text-slate-700 break-words" x-text="stage.title"></h2>
@@ -626,6 +650,10 @@
                 <span class="px-2 py-1 rounded-full text-[10px] uppercase font-semibold shrink-0" :class="workflowStageStatusClass(stage.option_state || stage.status)" x-text="workflowStageStatusLabel(stage)"></span>
               </div>
               <p class="text-sm text-slate-600 whitespace-pre-wrap break-words mt-4" x-text="stage.goal"></p>
+              <p x-show="stage.pending_review_id" class="text-xs text-amber-700 mt-3">Completion is awaiting independent review. Dependent goals remain gated.</p>
+              <button x-show="stage.pending_review_id" @click="loadWorkflowStageReview(stage)" :disabled="!!workflowReviewLoading[stage.pending_review_id]" class="text-xs text-brand-600 mt-2 disabled:opacity-50" x-text="workflowReviewLoading[stage.pending_review_id] ? 'Loading review...' : reviewDetails[stage.pending_review_id] ? 'Hide pending review' : workflowReviewErrors[stage.pending_review_id] ? 'Retry review' : 'Read pending review'"></button>
+              <p x-show="stage.pending_review_id && workflowReviewErrors[stage.pending_review_id]" role="alert" class="text-xs text-rose-600 mt-3 break-words" x-text="workflowReviewErrors[stage.pending_review_id]"></p>
+              <template x-if="stage.pending_review_id && reviewDetails[stage.pending_review_id]"><section class="rounded-xl border border-amber-200 bg-amber-50 p-3 mt-3"><p class="text-xs text-slate-600 whitespace-pre-wrap break-words" x-text="reviewDetails[stage.pending_review_id].completion?.description"></p><p class="text-xs text-slate-600 mt-2 whitespace-pre-wrap break-words" x-text="reviewDetails[stage.pending_review_id].feedback || 'No review decision has been recorded.'"></p><h3 class="text-xs font-medium text-slate-600 mt-3">Evidence references</h3><p x-show="!reviewDetails[stage.pending_review_id].evidence?.length" class="text-[11px] text-slate-500 mt-2">No evidence references recorded.</p><ul class="list-disc pl-4 mt-2 space-y-1 text-xs text-slate-600"><template x-for="(evidence,index) in reviewDetails[stage.pending_review_id].evidence || []" :key="index"><li class="whitespace-pre-wrap break-words" x-text="evidence"></li></template></ul><details class="mt-3"><summary class="cursor-pointer text-xs text-brand-600">Full claim and evidence snapshot</summary><pre class="mt-2 text-[11px] text-slate-600 whitespace-pre-wrap break-words max-h-72 overflow-y-auto" x-text="JSON.stringify({completion:reviewDetails[stage.pending_review_id].completion,snapshot:reviewDetails[stage.pending_review_id].snapshot},null,2)"></pre></details></section></template>
               <details x-show="stage.result && Object.keys(stage.result).length" class="mt-3"><summary class="cursor-pointer text-xs text-slate-500">Required result fields</summary><pre class="mt-2 rounded-lg bg-slate-50 p-3 text-[11px] text-slate-600 whitespace-pre-wrap break-all" x-text="JSON.stringify(stage.result, null, 2)"></pre><p class="text-[11px] text-slate-400 mt-2">Types validate the claim's shape. Evidence and any configured review assess its accuracy.</p></details>
               <template x-if="stage.status === 'not_applicable'">
                 <section class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
@@ -781,8 +809,7 @@
             </div>
           </article>
         </template>
-        </div>
-        <p class="text-xs text-slate-400 pb-4">A stage opens when its prerequisite gates are satisfied. False conditions retain a not-applicable outcome. Parallel stages share the workflow's files. Accepted findings and output files remain available above.</p>
+        </aside>
       </div>
     </main>
   </div>
@@ -1724,6 +1751,18 @@ function waylineApp() {
     workflowDeleteError: '',
     workflow: null,
     selectedWorkflowId: '',
+    workflowCy: null,
+    workflowSelectedRecord: {type:'overview',id:'overview'},
+    workflowRecordSelections: {},
+    workflowDisplayMode: 'graph',
+    workflowLayoutMode: 'dagre_tb',
+    workflowGraphError: '',
+    workflowTopologyChanged: false,
+    workflowCameraTouched: false,
+    workflowLoadVersion: 0,
+    workflowOpeningLoad: null,
+    workflowReviewErrors: {},
+    workflowReviewLoading: {},
     showNewWorkflow: false,
     isCreatingWorkflow: false,
     isChangingWorkflowStatus: false,
@@ -1829,11 +1868,11 @@ function waylineApp() {
     isStoppingAllProjects: false,
 
     async init() {
-      this.$watch('view', () => this.closeAgentSessions());
+      this.$watch('view', (view) => { this.closeAgentSessions(); if (view !== 'workflow') this.disposeWorkflowGraph(); });
       this.$watch('selectedProjectId', () => this.closeAgentSessions());
       this.$watch('selectedWorkflowId', () => this.closeAgentSessions());
       this.$watch('selectedNode', () => this.closeAgentSessions());
-      window.addEventListener('pagehide', () => this.closeAgentSessions());
+      window.addEventListener('pagehide', () => { this.closeAgentSessions(); this.disposeWorkflowGraph(); });
       this._panelResizeMove = (e) => this.onPanelResize(e);
       this._panelResizeStop = () => this.stopPanelResize();
       window.addEventListener('pointermove', this._panelResizeMove);
@@ -2414,7 +2453,7 @@ function waylineApp() {
       this.workflowActionId = id;
       try {
         const updated = await this.api('POST', `/workflows/${encodeURIComponent(id)}/restore`);
-        if (this.view === 'workflow' && this.selectedWorkflowId === id) this.workflow = updated;
+        if (this.view === 'workflow' && this.selectedWorkflowId === id) this.applyWorkflowDetail(updated);
         await Promise.all([this.loadProjects(),this.loadWorkflows(),this.loadWorkflowTrash()]);
         this.showToast(updated.workflow.status === 'completed' ? 'Completed workflow restored' : 'Workflow restored, still paused');
       } catch(e) {
@@ -2427,10 +2466,11 @@ function waylineApp() {
       if (!id || currentStatus === 'completed' || this.workflowActionId) return;
       this.workflowActionId = id;
       this.isChangingWorkflowStatus = true;
+      this.workflowLoadVersion += 1;
       try {
         const status = currentStatus === 'active' ? 'stopped' : 'active';
         const updated = await this.api('PUT', `/workflows/${encodeURIComponent(id)}/status`, {status});
-        if (this.selectedWorkflowId === id) this.workflow = updated;
+        if (this.selectedWorkflowId === id) this.applyWorkflowDetail(updated);
         await Promise.all([this.loadProjects(),this.loadWorkflows()]);
         this.showToast(status === 'stopped' ? 'Workflow paused' : 'Workflow resumed');
       } catch(e) { this.showToast(e.message, 'error'); }
@@ -2686,24 +2726,43 @@ function waylineApp() {
       finally { this.isSavingRuntime = false; }
     },
 
+    applyWorkflowDetail(data) {
+      const sameWorkflow = this.workflow?.workflow.id === data.workflow.id;
+      this.workflow = data;
+      if (sameWorkflow && this.view === 'workflow' && this.workflowCy) this.updateWorkflowGraph();
+    },
+
     async loadWorkflow(id) {
+      const version = ++this.workflowLoadVersion;
       try {
         const data = await this.api('GET', `/workflows/${encodeURIComponent(id)}`);
-        if (this.selectedWorkflowId === id) this.workflow = data;
+        if (this.selectedWorkflowId !== id || version !== this.workflowLoadVersion) return null;
+        this.applyWorkflowDetail(data);
         return data;
       } catch(e) {
-        this.showToast(e.message, 'error');
+        if (this.selectedWorkflowId === id && version === this.workflowLoadVersion) this.showToast(e.message, 'error');
         return null;
       }
     },
 
     async openWorkflow(id) {
       if (!id) return;
-      if (this.view === 'usage') this.cancelUsageLoad();
       this.rememberWorkflowScroll();
+      const previousId = this.selectedWorkflowId;
       this.selectedWorkflowId = id;
-      const data = await this.loadWorkflow(id);
-      if (!data || this.selectedWorkflowId !== id) return;
+      const opening = {id,promise:this.loadWorkflow(id)};
+      this.workflowOpeningLoad = opening;
+      const data = await opening.promise;
+      if (this.workflowOpeningLoad?.promise !== opening.promise) return;
+      this.workflowOpeningLoad = null;
+      if (this.selectedWorkflowId !== id) return;
+      if (!data) {
+        this.selectedWorkflowId = previousId;
+        return;
+      }
+      if (this.view === 'usage') this.cancelUsageLoad();
+      this.disposeWorkflowGraph();
+      this.workflowSelectedRecord = this.workflowRecordSelections[id] || {type:'overview',id:'overview'};
       this.stopReplayTimer();
       this.replay.active = false;
       this.replay.playing = false;
@@ -2711,20 +2770,333 @@ function waylineApp() {
       this.teardownAutoFit();
       if (this.cy) { this.cy.destroy(); this.cy = null; }
       this.selectedProjectId = '';
-      this.project = null;
       this.view = 'workflow';
+      this.project = null;
       this.$nextTick(() => {
+        if (this.view !== 'workflow' || this.selectedWorkflowId !== id) return;
         const scroller = this.$refs.workflowScroll;
         if (scroller) scroller.scrollTop = this.workflowScrollPositions[id] || 0;
+        this.initWorkflowGraph();
       });
       const hash = `#/workflows/${encodeURIComponent(id)}`;
       if (location.hash !== hash) location.hash = hash.slice(1);
+    },
+
+    async refreshWorkflow() {
+      const opening = this.workflowOpeningLoad;
+      if (opening?.id === this.selectedWorkflowId) return opening.promise;
+      return this.loadWorkflow(this.selectedWorkflowId);
     },
 
     backFromProject() {
       const workflowId = this.project?.project?.workflow_id;
       if (workflowId) this.openWorkflow(workflowId);
       else this.backToList();
+    },
+
+    workflowInspectorStages() {
+      if (this.workflowSelectedRecord.type !== 'stage') return [];
+      return (this.workflow?.stages || []).filter(stage => stage.id === this.workflowSelectedRecord.id);
+    },
+
+    workflowInspectorCollections() {
+      if (this.workflowSelectedRecord.type !== 'collection') return [];
+      return (this.workflow?.collections || []).filter(collection => collection.name === this.workflowSelectedRecord.id);
+    },
+
+    workflowStageIndex(id) {
+      return this.workflowDisplayStages().findIndex(stage => stage.id === id) + 1;
+    },
+
+    workflowOutputArtifacts() {
+      const seen = new Set();
+      return (this.workflow?.stages || []).flatMap(stage => (stage.collected_artifacts || []).filter(artifact => {
+        if (seen.has(artifact.id)) return false;
+        seen.add(artifact.id);
+        return true;
+      }).map(artifact => ({stage,artifact})));
+    },
+
+    workflowStageGraphState(stage) {
+      if (stage.status === 'not_applicable') return 'not_applicable';
+      if (['pending','unavailable','skipped'].includes(stage.option_state)) return stage.option_state;
+      if (stage.pending_review_id) return 'review';
+      if (stage.status === 'completed') return 'completed';
+      if (stage.choice_error || stage.artifact_error || stage.expansion_error || stage.result_error) return 'blocked';
+      if (stage.status === 'stopped') return 'stopped';
+      if (this.workflow?.workflow.status === 'stopped' && !this.workflowWaitingFor(stage).length) return 'paused';
+      if (stage.status === 'active') return 'active';
+      return this.workflowWaitingFor(stage).length ? 'waiting' : 'ready';
+    },
+
+    workflowStageGraphStatus(stage) {
+      const state = this.workflowStageGraphState(stage);
+      const label = {active:'Active',ready:'Ready · awaiting admission',paused:'Paused',waiting:'Waiting for prerequisites',blocked:'Blocked',review:'Awaiting review',completed:'Completed',stopped:'Stopped',not_applicable:'Not applicable',pending:'Unselected option',unavailable:'Unavailable option',skipped:'Skipped option'}[state] || state;
+      return stage.option_state === 'selected' ? `${label} · selected` : label;
+    },
+
+    workflowCollectionStatus(collection) {
+      return collection.not_applicable_reason ? 'Not applicable' : collection.ready ? 'Ready' : collection.sealed ? 'Waiting for members' : 'Waiting for discovery';
+    },
+
+    workflowGraphElements() {
+      const stages = this.workflow?.stages || [];
+      const collections = this.workflow?.collections || [];
+      const byId = new Map(stages.map(stage => [stage.id,stage]));
+      const nodes = stages.map(stage => ({data:{id:`stage:${stage.id}`,recordType:'stage',recordId:stage.id,title:stage.title || stage.id,
+        label:`${this.shortWorkflowLabel(stage.title || stage.id)}\n${this.workflowStageGraphStatus(stage)}`,state:this.workflowStageGraphState(stage)}}));
+      for (const stage of stages.filter(stage => stage.expansion?.mode === 'one')) {
+        nodes.push({data:{id:`choice:${stage.id}`,recordType:'choice',recordId:stage.id,title:`Choose one after ${stage.title || stage.id}`,
+          label:`Choose one\n${stage.status === 'not_applicable' ? 'Not applicable' : stage.choice_satisfied ? 'Selected option succeeded' : stage.choice_error ? 'No option can proceed' : 'Selected option must succeed'}`,
+          state:stage.status === 'not_applicable' ? 'not_applicable' : stage.choice_satisfied ? 'completed' : stage.choice_error ? 'blocked' : 'waiting'}});
+      }
+      for (const collection of collections) {
+        nodes.push({data:{id:`collection:${collection.name}`,recordType:'collection',recordId:collection.name,title:`Collection ${collection.name}`,
+          label:`${this.shortWorkflowLabel(collection.name)}\nCollection · ${this.workflowCollectionStatus(collection)}\n${collection.members?.length || 0} members`,
+          state:collection.not_applicable_reason ? 'not_applicable' : collection.ready ? 'completed' : 'waiting'}});
+      }
+      const nodeMap = new Map(nodes.map(node => [node.data.id,node.data]));
+      const edges = [];
+      const addEdge = (data) => {
+        if (!nodeMap.has(data.source) || !nodeMap.has(data.target)) return;
+        edges.push({data:{condition:'',allowAbsent:false,reason:'',destinationOutcome:'',...data,
+          sourceTitle:nodeMap.get(data.source).title,targetTitle:nodeMap.get(data.target).title}});
+      };
+      for (const stage of stages) {
+        (stage.depends_on || []).forEach((dependency,index) => {
+          const dep = typeof dependency === 'string' ? {stage:dependency} : dependency;
+          const parent = byId.get(dep.stage);
+          const choice = parent?.expansion?.mode === 'one' && stage.generated_by_stage_id !== parent.id;
+          const generated = parent && stage.generated_by_stage_id === parent.id;
+          const source = dep.collection ? `collection:${dep.collection}` : `${choice ? 'choice' : 'stage'}:${dep.stage}`;
+          const sourceAbsent = dep.collection ? !!collections.find(collection => collection.name === dep.collection)?.not_applicable_reason : parent?.status === 'not_applicable';
+          const label = sourceAbsent ? (dep.allow_not_applicable ? 'Absence allowed' : 'Not-applicable prerequisite') : dep.collection ? 'Requires collection' : choice ? 'Selected option succeeds' : generated ? (parent.expansion?.mode === 'one' ? 'Ranked option' : 'Generated goal') : dep.when ? 'Conditional prerequisite' : dep.allow_not_applicable ? 'Completion or absence' : 'Requires completion';
+          addEdge({id:`dependency:${stage.id}:${index}`,source,target:`stage:${stage.id}`,label,edgeType:'dependency',
+            condition:dep.when || '',allowAbsent:!!dep.allow_not_applicable,destinationOutcome:stage.not_applicable_reason || '',
+            explanation:sourceAbsent ? (dep.allow_not_applicable ? (choice ? 'The proposal did not apply. This dependency explicitly allows its absence; no selected option is required for this gate.' : 'The source did not apply. This dependency explicitly allows its absence; the destination may proceed once its other prerequisites are met.') : 'The source did not apply and this dependency does not allow its absence. The server retains the destination outcome and its reason.') : choice ? 'The proposal and its selected option must succeed. Unselected, skipped and unavailable alternatives are not required by this gate.' : dep.collection ? 'This stage depends on the named collection being ready. Discovery must be sealed and its applicable members resolved. An empty successful collection can be ready.' : generated ? (parent.expansion?.mode === 'one' ? 'This is a ranked generated option. Only the selected option runs; this connector does not make unselected alternatives required.' : 'This goal was generated by the source stage. All generated goals are required; later prerequisites are the exact dependencies stored by the server.') : 'The destination requires this source stage to resolve under the authored dependency. Conditions are evaluated by the server; source completion alone does not prove a conditional gate was accepted.'});
+        });
+      }
+      for (const parent of stages.filter(stage => stage.expansion?.mode === 'one')) {
+        // A direct shortcut would cross the option row and imply that an
+        // unselected option contributes to the gate. The selected path already
+        // includes the proposal dependency. Empty discovery has no such path.
+        const optionCount = stages.filter(stage => stage.generated_by_stage_id === parent.id).length;
+        if (!optionCount || parent.choice_error) addEdge({id:`choice-proposal:${parent.id}`,source:`stage:${parent.id}`,target:`choice:${parent.id}`,label:parent.status === 'not_applicable' ? 'Proposal not applicable' : parent.choice_error ? 'Options exhausted' : 'Proposal complete',edgeType:parent.choice_error && optionCount ? 'choice-recovery' : 'choice',routeOffset:Math.max(300,optionCount*100),reason:parent.not_applicable_reason || parent.choice_error || '',
+          explanation:parent.status === 'not_applicable' ? 'The proposal did not apply. Dependencies that explicitly allow an absent source may proceed without selecting an option.' : parent.choice_error ? 'The ranked alternatives are exhausted. This connector ties the blocked gate to its proposal for recovery; unavailable options do not satisfy the gate.' : 'This gate combines the completed proposal with one successful selected option. Proposal completion alone does not unlock later stages.'});
+        const selected = stages.find(stage => stage.generated_by_stage_id === parent.id && ['selected','succeeded'].includes(stage.option_state));
+        if (selected) addEdge({id:`choice-selected:${parent.id}:${selected.id}`,source:`stage:${selected.id}`,target:`choice:${parent.id}`,label:'Selected option',edgeType:'choice',reason:selected.option_reason || '',
+          explanation:'Only this selected option contributes to the choose-one gate. Its completion and any required independent review must be accepted before following stages start.'});
+      }
+      for (const collection of collections) {
+        // Member paths already connect discovery to the collection. Keep a
+        // direct emitter connection only when there are no member paths.
+        if (!collection.members?.length) addEdge({id:`collection-emitter:${collection.name}`,source:`stage:${collection.emitter_stage_id}`,target:`collection:${collection.name}`,label:'Emits collection',edgeType:'membership',
+          explanation:'This stage discovers the collection members. The collection remains open until discovery resolves.'});
+        for (const member of collection.members || []) addEdge({id:`collection-member:${collection.name}:${member.stage_id}`,source:`stage:${member.stage_id}`,target:`collection:${collection.name}`,label:'Member output',edgeType:'membership',
+          explanation:'This stage is a recorded member of the collection. Its accepted result and artifacts remain in the collection inspector. This connector describes membership, not an extra authored stage dependency.'});
+      }
+      return {nodes,edges};
+    },
+
+    shortWorkflowLabel(value) {
+      const text = String(value || '').replace(/\s+/g,' ').trim();
+      return text.length > 64 ? text.slice(0,61)+'…' : text;
+    },
+
+    workflowGraphEdgeLabel(edge) {
+      return `${edge.sourceTitle} → ${edge.targetTitle} · ${edge.label}`;
+    },
+
+    workflowSelectedGraphEdge() {
+      if (this.workflowSelectedRecord.type !== 'edge') return null;
+      return this.workflowGraphElements().edges.find(edge => edge.data.id === this.workflowSelectedRecord.id)?.data || null;
+    },
+
+    ensureWorkflowSelection(data) {
+      const wanted = new Set([...data.nodes,...data.edges].map(item => item.data.id));
+      const record = this.workflowSelectedRecord;
+      if (record.type !== 'overview' && !wanted.has(record.type === 'edge' ? record.id : `${record.type}:${record.id}`)) this.selectWorkflowRecord('overview','overview');
+    },
+
+    selectWorkflowGraphNode(id) {
+      const node = this.workflowGraphElements().nodes.find(node => node.data.id === id);
+      if (node) this.selectWorkflowRecord(node.data.recordType,node.data.recordId);
+    },
+
+    selectWorkflowRecord(type,id) {
+      this.workflowSelectedRecord = {type,id};
+      if (this.selectedWorkflowId) this.workflowRecordSelections[this.selectedWorkflowId] = {type,id};
+      if (this.$refs?.workflowScroll) this.$refs.workflowScroll.scrollTop = 0;
+      this.highlightWorkflowSelection();
+    },
+
+    highlightWorkflowSelection() {
+      if (!this.workflowCy) return;
+      this.workflowCy.elements().removeClass('workflow-selected');
+      const record = this.workflowSelectedRecord;
+      const id = record.type === 'edge' ? record.id : `${record.type}:${record.id}`;
+      this.workflowCy.getElementById(id).addClass('workflow-selected');
+    },
+
+    async loadWorkflowStageReview(stage) {
+      const id = stage.pending_review_id;
+      if (!id || this.workflowReviewLoading[id]) return;
+      if (this.reviewDetails[id]) { delete this.reviewDetails[id]; return; }
+      this.workflowReviewErrors[id] = '';
+      this.workflowReviewLoading[id] = true;
+      try { this.reviewDetails[id] = await this.api('GET', `/reviews/${encodeURIComponent(id)}`); }
+      catch (error) { this.workflowReviewErrors[id] = `Review could not be loaded: ${error.message}`; }
+      finally { this.workflowReviewLoading[id] = false; }
+    },
+
+    setWorkflowDisplayMode(mode) {
+      this.workflowDisplayMode = mode;
+      if (mode === 'graph') this.$nextTick(() => {
+        if (this.workflowCy) this.workflowCy.resize();
+        else this.initWorkflowGraph();
+      });
+    },
+
+    workflowGraphPadding() {
+      return typeof window !== 'undefined' && window.innerWidth < 768 ? 12 : 45;
+    },
+
+    workflowLayoutOptions() {
+      return {...this.layoutOpts(false,this.workflowLayoutMode),nodeSep:32,rankSep:44,minLen:edge => edge.data("edgeType") === "choice-recovery" ? 2 : 1,padding:this.workflowGraphPadding()};
+    },
+
+    workflowGraphStyles() {
+      return [
+        {selector:'node',style:{shape:'round-rectangle',width:180,height:76,label:'data(label)','font-family':'-apple-system,BlinkMacSystemFont,Inter,sans-serif','font-size':12,'font-weight':500,'text-valign':'center','text-halign':'center','text-wrap':'wrap','text-max-width':160,'background-color':'#eef2ff',color:'#4338ca','border-width':1.5,'border-color':'#a5b4fc'}},
+        {selector:'node[state="completed"]',style:{'background-color':'#ecfdf5',color:'#047857','border-color':'#6ee7b7'}},
+        {selector:'node[state="active"]',style:{'background-color':'#e0e7ff',color:'#3730a3','border-color':'#818cf8','border-width':2}},
+        {selector:'node[state="review"]',style:{'background-color':'#fffbeb',color:'#92400e','border-color':'#fbbf24'}},
+        {selector:'node[state="blocked"],node[state="stopped"],node[state="unavailable"]',style:{'background-color':'#fff7ed',color:'#9a3412','border-color':'#fdba74'}},
+        {selector:'node[state="waiting"],node[state="ready"],node[state="paused"],node[state="pending"],node[state="skipped"],node[state="not_applicable"]',style:{'background-color':'#f8fafc',color:'#64748b','border-color':'#cbd5e1'}},
+        {selector:'node[state="pending"],node[state="skipped"],node[state="unavailable"]',style:{'border-style':'dashed'}},
+        {selector:'node[recordType="collection"]',style:{shape:'barrel',height:84,'border-width':2}},
+        {selector:'node[recordType="choice"]',style:{shape:'diamond',width:200,height:96,'font-size':11,'text-max-width':136}},
+        {selector:'edge',style:{width:1.8,'line-color':'#a5b4fc','target-arrow-color':'#a5b4fc','target-arrow-shape':'triangle','curve-style':'bezier',label:'data(label)','font-size':10,color:'#64748b','text-rotation':'autorotate','text-margin-y':-10,'text-background-color':'#f8fafc','text-background-opacity':1,'text-background-padding':'3px','text-events':'yes'}},
+        {selector:'edge[edgeType="membership"]',style:{'line-style':'dotted','line-color':'#94a3b8','target-arrow-color':'#94a3b8'}},
+        {selector:'edge[edgeType="choice"]',style:{'line-color':'#a78bfa','target-arrow-color':'#a78bfa','line-style':'dashed'}},
+        {selector:'edge[edgeType="choice-recovery"]',style:{'line-color':'#f59e0b','target-arrow-color':'#f59e0b','line-style':'dashed','curve-style':'unbundled-bezier','control-point-distances':edge => [-edge.data('routeOffset'),-edge.data('routeOffset')],'control-point-weights':[0.25,0.75]}},
+        {selector:'node.workflow-selected',style:{'border-width':3,'border-color':'#4f46e5','overlay-color':'#a5b4fc','overlay-opacity':0.15,'overlay-padding':7,'z-index':999}},
+        {selector:'edge.workflow-selected',style:{width:4,'line-color':'#4f46e5','target-arrow-color':'#4f46e5','overlay-color':'#a5b4fc','overlay-opacity':0.15,'overlay-padding':7,'z-index':999}},
+      ];
+    },
+
+    initWorkflowGraph() {
+      this.disposeWorkflowGraph();
+      if (this.view !== 'workflow' || !this.workflow) return;
+      const container = document.getElementById('workflowCy');
+      if (!container) return;
+      this.workflowGraphError = '';
+      try {
+        const data = this.workflowGraphElements();
+        this.ensureWorkflowSelection(data);
+        this.workflowCy = cytoscape({container,elements:[...data.nodes,...data.edges],style:this.workflowGraphStyles(),layout:this.workflowLayoutOptions(),minZoom:0.12,maxZoom:3});
+        // Capture the reactive reference used by later identity checks.
+        const graph = this.workflowCy;
+        graph.on('tap','node',event => this.selectWorkflowGraphNode(event.target.id()));
+        graph.on('tap','edge',event => this.selectWorkflowRecord('edge',event.target.id()));
+        this.highlightWorkflowSelection();
+        let previousSize = null;
+        this.workflowCameraTouched = false;
+        const touch = () => { this.workflowCameraTouched = true; };
+        this._workflowCameraElement = container;
+        this._workflowCameraListener = touch;
+        container.addEventListener('pointerdown',touch,{passive:true});
+        container.addEventListener('wheel',touch,{passive:true});
+        this._workflowResizeObserver = new ResizeObserver(() => {
+          const rect = container.getBoundingClientRect();
+          if (!rect.width || !rect.height) return;
+          if (previousSize && Math.abs(rect.width - previousSize.width) < 0.5 && Math.abs(rect.height - previousSize.height) < 0.5) return;
+          previousSize = {width:rect.width,height:rect.height};
+          clearTimeout(this._workflowResizeTimer);
+          this._workflowResizeTimer = setTimeout(() => {
+            if (this.workflowCy !== graph || this.view !== 'workflow') return;
+            graph.resize();
+            if (!this.workflowCameraTouched) graph.fit(undefined,this.workflowGraphPadding());
+          },100);
+        });
+        this._workflowResizeObserver.observe(container);
+      } catch (error) {
+        this.disposeWorkflowGraph();
+        this.workflowGraphError = 'The visual graph could not be loaded. Use the stages and dependencies list below.';
+      }
+    },
+
+    fitWorkflowGraph() {
+      if (!this.workflowCy) return;
+      this.workflowCy.resize();
+      this.workflowCy.fit(undefined,this.workflowGraphPadding());
+      this.workflowCameraTouched = true;
+      this.workflowTopologyChanged = false;
+    },
+
+    zoomWorkflowGraph(factor) {
+      const graph = this.workflowCy;
+      if (!graph) return;
+      graph.zoom({level:Math.max(0.12,Math.min(3,graph.zoom()*factor)),renderedPosition:{x:graph.width()/2,y:graph.height()/2}});
+      this.workflowCameraTouched = true;
+    },
+
+    applyWorkflowLayout() {
+      if (!this.workflowCy) return;
+      this.workflowCy.layout(this.workflowLayoutOptions()).run();
+      this.workflowCameraTouched = true;
+      this.workflowTopologyChanged = false;
+    },
+
+    updateWorkflowGraph() {
+      const graph = this.workflowCy;
+      if (!graph || this.view !== 'workflow') return;
+      const data = this.workflowGraphElements();
+      const wanted = new Set([...data.nodes,...data.edges].map(item => item.data.id));
+      let changed = false;
+      const siblings = new Map();
+      graph.batch(() => {
+        graph.elements().forEach(element => { if (!wanted.has(element.id())) { element.remove(); changed = true; } });
+        for (const node of data.nodes) {
+          const existing = graph.getElementById(node.data.id);
+          if (existing.length) existing.data(node.data);
+          else {
+            const sources = data.edges.filter(edge => edge.data.target === node.data.id).map(edge => graph.getElementById(edge.data.source)).filter(element => element.length);
+            const key = sources[0]?.id() || 'root';
+            const index = siblings.get(key) || 0;
+            siblings.set(key,index + 1);
+            const origin = sources.length ? sources.reduce((sum,element) => ({x:sum.x + element.position('x')/sources.length,y:sum.y + element.position('y')/sources.length}),{x:0,y:0}) : {x:0,y:0};
+            const position = this.layoutDirection(this.workflowLayoutMode) === 'TB' ? {x:origin.x + index*220,y:origin.y+180} : {x:origin.x+250,y:origin.y+index*130};
+            graph.add({...node,position});
+            changed = true;
+          }
+        }
+        for (const edge of data.edges) {
+          let existing = graph.getElementById(edge.data.id);
+          if (existing.length && (existing.data('source') !== edge.data.source || existing.data('target') !== edge.data.target)) { existing.remove(); existing = graph.getElementById(edge.data.id); changed = true; }
+          if (existing.length) existing.data(edge.data);
+          else { graph.add(edge); changed = true; }
+        }
+      });
+      if (changed) this.workflowTopologyChanged = true;
+      this.ensureWorkflowSelection(data);
+      this.highlightWorkflowSelection();
+    },
+
+    disposeWorkflowGraph() {
+      clearTimeout(this._workflowResizeTimer);
+      this._workflowResizeTimer = null;
+      if (this._workflowResizeObserver) this._workflowResizeObserver.disconnect();
+      this._workflowResizeObserver = null;
+      if (this._workflowCameraElement && this._workflowCameraListener) {
+        this._workflowCameraElement.removeEventListener('pointerdown',this._workflowCameraListener);
+        this._workflowCameraElement.removeEventListener('wheel',this._workflowCameraListener);
+      }
+      this._workflowCameraElement = null;
+      this._workflowCameraListener = null;
+      if (this.workflowCy) this.workflowCy.destroy();
+      this.workflowCy = null;
+      this.workflowTopologyChanged = false;
     },
 
     workflowRequiredStages() {
@@ -2974,11 +3346,12 @@ function waylineApp() {
     async retryChoiceOption() {
       if (this.choiceRetrySaving || !this.choiceRetryForm.reason.trim()) return;
       this.choiceRetrySaving = true;
+      this.workflowLoadVersion += 1;
       this.choiceRetryError = '';
       try {
         const form = this.choiceRetryForm;
         const data = await this.api('POST', `/workflows/${form.workflow_id}/choices/${form.parent_id}/retry`, {goal_id:form.goal_id,reason:form.reason.trim()});
-        if (this.selectedWorkflowId === form.workflow_id) this.workflow = data;
+        if (this.selectedWorkflowId === form.workflow_id) this.applyWorkflowDetail(data);
         this.showChoiceRetryModal = false;
         await Promise.all([this.loadProjects(), this.loadWorkflows()]);
         this.showToast('Option selected for retry. Resume the workflow when ready.');
@@ -3888,8 +4261,10 @@ function waylineApp() {
     },
 
     async openProject(id) {
-      if (this.view === 'usage') this.cancelUsageLoad();
       this.rememberWorkflowScroll();
+      this.disposeWorkflowGraph();
+      this.selectedWorkflowId = '';
+      if (this.view === 'usage') this.cancelUsageLoad();
       if (this.replay.active) {
         this.stopReplayTimer();
         this.replay.active = false;
@@ -3967,7 +4342,7 @@ function waylineApp() {
           await this.loadProject(this.selectedProjectId);
           this.updateGraph();
         } else if (this.selectedWorkflowId && this.view === 'workflow') {
-          await this.loadWorkflow(this.selectedWorkflowId);
+          await this.refreshWorkflow();
         } else {
           await Promise.all([this.loadProjects(), this.loadWorkflows()]);
         }
@@ -4070,9 +4445,9 @@ function waylineApp() {
       ];
     },
 
-    layoutOpts(animate = true) {
-      const direction = this.layoutDirection();
-      if (this.layoutEngine() === 'elk') {
+    layoutOpts(animate = true, mode = this.layoutMode) {
+      const direction = this.layoutDirection(mode);
+      if (this.layoutEngine(mode) === 'elk') {
         const elkDirection = direction === 'TB' ? 'DOWN' : 'RIGHT';
         return {
           name: 'elk',
@@ -4094,7 +4469,7 @@ function waylineApp() {
           },
         };
       }
-      if (this.layoutEngine() === 'klay') {
+      if (this.layoutEngine(mode) === 'klay') {
         const isHorizontal = direction === 'LR';
         return {
           name: 'klay',

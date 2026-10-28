@@ -286,7 +286,7 @@ nongenerated definitions, context, output requirements, and verification setting
 editable creation form. The operator edits and explicitly creates a new workflow. The old
 run remains intact. This does not reopen or rewrite completed discovery history.
 
-Option cards show selection, unselected/skipped/unavailable states, rationale, and event
+The selected option inspector shows selection, unselected/skipped/unavailable states, rationale, and event
 history with links to previous attempts. A selected worker may optionally inspect paged
 `GET /projects/{id}/choice-history` and the individual evidence URLs it returns. The history
 reader supports `choice-list` and `choice-fact SOURCE_PROJECT FACT_ID`. Nothing fetches
@@ -372,6 +372,40 @@ problem, then resume explicitly to reset the recovery budget. Transport failures
 without asking an agent to recreate existing files. Once the file is collected and the goal is recorded as complete,
 its captured bytes cannot be replaced by a later stage changing the same workspace path.
 
+## Read the workflow graph
+
+A workflow opens as a stage graph beside one inspector. Rounded nodes are stage goals;
+arrows explain prerequisites. Select a stage to read its full goal, recorded completion,
+required and collected files, earlier findings, recovery errors, and agent sessions.
+**Open stage graph** opens that stage's fact/intent graph. A pending completion review,
+its evidence references and its recorded snapshot can be read in the inspector without
+treating the claim as an accepted completion. Failed review reads show a retry action.
+**Workflow outputs** retains the starting context and lists collected files across the workflow; files and worker reports
+remain separate from independent verification.
+
+Choose-one discoveries have a diamond gate. Only the selected option feeds that gate;
+unselected, skipped, and unavailable alternatives remain visible without becoming required
+prerequisites. A named collection has a separate collection node. Its member paths lead
+into the collection, then collection dependencies lead to consumers. Empty collections
+retain a direct discovery connection and can be ready with zero members. These display
+gates are not extra stages and do not change execution order or progress counts.
+
+Select an arrow to read its meaning, condition and allowed absence. A destination's
+recorded not-applicable outcome is labeled separately; the server does not provide a
+cause for each individual arrow. Conditions are evaluated by the server. A not-applicable goal is
+not displayed as achieved. An **Active** stage is admitted work; it does not establish
+that a worker process is currently running. Awaiting review, stopped, waiting, blocked,
+unavailable and skipped states retain their separate meanings. A ready stage awaiting
+admission is distinguished from a recovery block; a ready stage held by a stopped
+workflow is shown as paused.
+
+On phones the graph sits above the inspector. Use the zoom buttons or pan the canvas to
+read a branch, or select **Stages and dependencies** for keyboard-accessible buttons that
+open the same inspector. The graph's layout selector and **Fit graph** are explicit camera
+actions. Polling preserves camera and selection; newly discovered branches are placed near
+their sources without recentering the graph. Untouched graphs refit when their container
+changes size, while a manually adjusted view is retained.
+
 ## Controls and completion
 
 `GET /workflows` lists progress. `GET /workflows/{id}` returns stage goals, dependencies,
@@ -412,4 +446,8 @@ uv run --project wayline --group dev pytest
 ```
 
 Tests use isolated databases and mock/local processes. They do not call paid models or
-run security testing against external targets.
+run security testing against external targets. `tests/test_workflow_graph_ui.py` projects
+actual deterministic API responses for parallel joins, conditional absence, collections,
+ranked fallback and pending review. It also checks camera retention with the bundled
+Cytoscape library and graph cleanup on navigation. Browser fixtures are labeled as
+fixtures and do not represent model-authored work.

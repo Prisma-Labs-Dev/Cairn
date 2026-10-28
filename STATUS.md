@@ -44,10 +44,12 @@ tests and its `TestWayline` Go checks, and the renamed binary reported its Wayli
 version. These are build and deterministic checks, not a new live provider run. Portable
 outcomes are recorded here; operator-local receipts and build logs are not distributed.
 
-GitHub CI is configured for Python 3.12, 3.13 and 3.14 plus application and worker source
-container builds; results are pending. Local container image building was unavailable because
-the Docker daemon was not running. Live provider/container execution remains unverified,
-and no worker image publication is claimed.
+On 2026-10-28, [installation PR #10](https://github.com/Prisma-Labs-Dev/Wayline/pull/10)
+merged as `b4968f0`. [Python 3.12, 3.13 and 3.14 CI](https://github.com/Prisma-Labs-Dev/Wayline/actions/runs/40655733292)
+passed, and both [application and generic-worker source images](https://github.com/Prisma-Labs-Dev/Wayline/actions/runs/40655733341)
+built successfully on GitHub Linux. Independent committed-clone wheel installation and
+regression checks also passed. Images were not published. These checks did not verify a
+new account's provider authentication, live provider requests, or authenticated container execution.
 
 The [2026-10-27 Luna pilots](docs/benchmark-pi-luna-results-2026-10-27.md) and
 [2026-10-28 retained-run UI review](docs/ui-run-review-2026-10-28.md) are historical evidence
