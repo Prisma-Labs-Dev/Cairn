@@ -580,7 +580,7 @@
 
 <!-- Workflow view -->
 <template x-if="view === 'workflow' && workflow">
-  <div class="flex-1 flex flex-col overflow-hidden" @resize.window="workflowInspectorOverlay = window.innerWidth < 960" @keydown.escape.window="if (view === 'workflow' && !agentSessions.open && !showWorkflowDeleteModal) { if (workflowMenuOpen) { workflowMenuOpen = false; $refs.workflowMenuButton.focus(); } else closeWorkflowInspector(); }">
+  <div class="flex-1 flex flex-col overflow-hidden" @resize.window="syncWorkflowInspectorViewport()" @keydown.escape.window="handleWorkflowEscape($event)">
     <header class="workflow-header bg-white border-b border-slate-200 shrink-0" :inert="workflowInspectorOpen && workflowInspectorOverlay">
       <button @click="backToList()" aria-label="Back to all projects" class="p-2 rounded-lg text-slate-500 hover:bg-slate-100">&larr;</button>
       <div class="min-w-0">
@@ -1247,14 +1247,14 @@
 </div>
 
 <!-- Retry an exhausted choice -->
-<div x-show="showChoiceRetryModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center overlay p-3" @click.self="!choiceRetrySaving && (showChoiceRetryModal = false)">
+<div x-show="showChoiceRetryModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center overlay p-3" @click.self="closeChoiceRetry()" @keydown.escape.stop="closeChoiceRetry()">
   <section role="dialog" aria-modal="true" aria-labelledby="choice-retry-title" class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto p-6 border border-slate-200" @click.stop>
     <h2 id="choice-retry-title" class="font-semibold text-slate-700">Retry an unavailable option</h2>
     <p class="text-sm text-slate-600 mt-2 break-words" x-text="choiceRetryForm.title"></p>
-    <label class="block text-xs font-medium text-slate-600 mt-4">What changed?<textarea x-model="choiceRetryForm.reason" rows="3" maxlength="8000" placeholder="Explain the new circumstances that make another attempt worthwhile." class="block w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm"></textarea></label>
+    <label class="block text-xs font-medium text-slate-600 mt-4">What changed?<textarea x-ref="choiceRetryReason" x-model="choiceRetryForm.reason" rows="3" maxlength="8000" placeholder="Explain the new circumstances that make another attempt worthwhile." class="block w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm"></textarea></label>
     <p class="text-xs text-slate-500 mt-3">Earlier failures and evidence stay in the history. Saving selects this option and keeps the workflow paused. Resume explicitly when ready.</p>
     <p x-show="choiceRetryError" x-text="choiceRetryError" role="alert" class="text-xs text-rose-600 mt-3"></p>
-    <div class="flex justify-end gap-2 mt-5"><button @click="showChoiceRetryModal = false" :disabled="choiceRetrySaving" class="px-4 py-2 text-sm text-slate-500 hover:bg-slate-50 rounded-xl disabled:opacity-40">Cancel</button><button @click="retryChoiceOption()" :disabled="choiceRetrySaving || !choiceRetryForm.reason.trim()" class="px-4 py-2 text-sm bg-brand-500 text-white hover:bg-brand-600 rounded-xl disabled:opacity-40" x-text="choiceRetrySaving ? 'Saving...' : 'Select for retry'"></button></div>
+    <div class="flex justify-end gap-2 mt-5"><button @click="closeChoiceRetry()" :disabled="choiceRetrySaving" class="px-4 py-2 text-sm text-slate-500 hover:bg-slate-50 rounded-xl disabled:opacity-40">Cancel</button><button @click="retryChoiceOption()" :disabled="choiceRetrySaving || !choiceRetryForm.reason.trim()" class="px-4 py-2 text-sm bg-brand-500 text-white hover:bg-brand-600 rounded-xl disabled:opacity-40" x-text="choiceRetrySaving ? 'Saving...' : 'Select for retry'"></button></div>
   </section>
 </div>
 
@@ -1658,8 +1658,8 @@
 </div>
 
 <!-- Agent sessions -->
-<div x-show="agentSessions.open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center overlay p-2 sm:p-5" @click.self="closeAgentSessions()" @keydown.escape.window="if (agentSessions.open) closeAgentSessions()">
-  <section role="dialog" aria-modal="true" aria-labelledby="agent-sessions-title" class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-6xl flex flex-col overflow-hidden" style="height:min(90vh,850px)" @click.stop>
+<div x-show="agentSessions.open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center overlay p-2 sm:p-5" @click.self="closeAgentSessions()" @keydown.escape.window="if (agentSessions.open) { $event.stopImmediatePropagation(); closeAgentSessions(); }">
+  <section x-ref="agentSessionsDialog" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="agent-sessions-title" class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-6xl flex flex-col overflow-hidden" style="height:min(90vh,850px)" @click.stop>
     <header class="px-4 sm:px-5 py-4 border-b border-slate-200 flex items-start gap-3 shrink-0">
       <div class="min-w-0 flex-1"><h2 id="agent-sessions-title" class="text-sm font-semibold text-slate-700">Agent sessions</h2><p class="text-xs text-slate-500 mt-1 break-words" x-text="agentSessions.title"></p><p class="text-[11px] text-slate-400 mt-1">Process state and captured Pi events. Goal outcomes remain in the graph.</p></div>
       <button @click="loadAgentSessions(agentSessions.offset)" :disabled="agentSessions.loading" class="px-2.5 py-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40">Refresh</button>
@@ -2114,7 +2114,9 @@ function waylineApp() {
       this.closeAgentSessionStream();
       const state = this.agentSessions;
       state.selectionVersion += 1;
+      if (!state.open && typeof document !== 'undefined') this._agentSessionsReturnFocus = document.activeElement;
       state.open = true;
+      this.$nextTick?.(() => { if (state.open) this.$refs?.agentSessionsDialog?.focus(); });
       state.scope = Object.fromEntries(Object.entries(scope).filter(([key,value]) => ['project_id','workflow_id','intent_id','fact_id'].includes(key) && value));
       state.title = title || state.scope.project_id || state.scope.workflow_id || 'Agent sessions';
       state.items = [];
@@ -2141,6 +2143,7 @@ function waylineApp() {
     },
 
     closeAgentSessions() {
+      const wasOpen = this.agentSessions.open;
       this.closeAgentSessionStream();
       this.agentSessions.open = false;
       this.agentSessions.requestVersion += 1;
@@ -2148,6 +2151,7 @@ function waylineApp() {
       this.agentSessions.loading = false;
       this.agentSessions.loadingEvents = false;
       this.agentSessions.connection = '';
+      if (wasOpen) this.$nextTick?.(() => { if (this._agentSessionsReturnFocus?.isConnected) this._agentSessionsReturnFocus.focus(); });
     },
 
     async loadAgentSessions(offset = 0, silent = false) {
@@ -2779,7 +2783,7 @@ function waylineApp() {
       this.disposeWorkflowGraph();
       this.workflowInspectorOpen = false;
       this.workflowMenuOpen = false;
-      this.workflowInspectorOverlay = typeof window !== 'undefined' && window.innerWidth < 960;
+      this.syncWorkflowInspectorViewport();
       this.workflowSelectedRecord = this.workflowRecordSelections[id] || {type:'overview',id:'overview'};
       this.stopReplayTimer();
       this.replay.active = false;
@@ -2964,6 +2968,25 @@ function waylineApp() {
         if (target?.isConnected && target.focus) target.focus();
         else document.getElementById('workflowCy')?.focus();
       });
+    },
+
+    syncWorkflowInspectorViewport() {
+      this.workflowInspectorOverlay = typeof window !== 'undefined' && window.matchMedia('(max-width: 959px)').matches;
+    },
+
+    handleWorkflowEscape(event) {
+      if (this.view !== 'workflow') return;
+      // The originating dialog remains identifiable even if its earlier window
+      // listener has already hidden it. Do not rely on mutable modal-open flags.
+      const dialog = event.target?.closest?.('[role="dialog"][aria-modal="true"]');
+      if (dialog && dialog !== this.$refs?.workflowScroll) return;
+      if (this.agentSessions.open || this.showChoiceRetryModal || this.showWorkflowDeleteModal) return;
+      const dialogs = typeof document !== 'undefined' ? document.querySelectorAll?.('[role="dialog"][aria-modal="true"]') || [] : [];
+      if ([...dialogs].some(item => item !== this.$refs?.workflowScroll && item.getClientRects().length)) return;
+      if (this.workflowMenuOpen) {
+        this.workflowMenuOpen = false;
+        this.$refs.workflowMenuButton.focus();
+      } else this.closeWorkflowInspector();
     },
 
     workflowInspectorKeydown(event) {
@@ -3400,7 +3423,18 @@ function waylineApp() {
       if (!this.canRetryChoice(stage)) return;
       this.choiceRetryForm = {workflow_id:this.workflow.workflow.id,parent_id:stage.generated_by_stage_id,goal_id:stage.id,title:stage.title,reason:''};
       this.choiceRetryError = '';
+      if (typeof document !== 'undefined') this._choiceRetryReturnFocus = document.activeElement;
       this.showChoiceRetryModal = true;
+      this.$nextTick?.(() => this.$refs?.choiceRetryReason?.focus());
+    },
+
+    closeChoiceRetry() {
+      if (this.choiceRetrySaving) return;
+      this.showChoiceRetryModal = false;
+      this.$nextTick?.(() => {
+        if (this._choiceRetryReturnFocus?.isConnected) this._choiceRetryReturnFocus.focus();
+        else this.$refs?.workflowInspectorClose?.focus();
+      });
     },
 
     async retryChoiceOption() {

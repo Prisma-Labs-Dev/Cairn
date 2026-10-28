@@ -507,3 +507,68 @@ def test_inline_review_read_failure_can_retry_and_preserves_full_read_only_evide
     await app.loadWorkflowStageReview(stage);
     assert.equal(app.reviewDetails['pending-claim'],undefined,'Evidence panel can close without changing review state');
     """)
+
+
+def test_escape_dispatch_keeps_underlying_inspector_when_other_dialog_closes_first():
+    # Exercise the actual Alpine directive bodies with real dispatched key events.
+    # EventTarget supplies listener ordering/target; closest supplies dialog ancestry.
+    import re
+    from test_agent_session_ui import HTML
+
+    html = HTML.read_text()
+    workflow_escape = re.search(r'@keydown.escape.window="([^"]+)"', html[html.index('<!-- Workflow view -->'):]).group(1)
+    sessions_escape = re.search(r'@keydown.escape.window="([^"]+)"', html[html.index('<div x-show="agentSessions.open"'):]).group(1)
+    retry_escape = re.search(r'@keydown.escape.stop="([^"]+)"', html[html.index('<!-- Retry an exhausted choice -->'):]).group(1)
+    run_ui("const directives=" + json.dumps([workflow_escape, sessions_escape, retry_escape]) + ";" + """
+    const app=waylineApp();app.view='workflow';app.workflowInspectorOpen=true;
+    const [workflowEscape,sessionsEscape,retryEscape]=directives.map(source=>new Function('$event','with(this){'+source+'}'));
+    const inspector={},sessions={},retry={};let focus='retry reason';
+    const trigger={isConnected:true,focus(){focus='retry trigger';}};
+    app.$nextTick=fn=>fn();
+    app.$refs={workflowScroll:inspector,workflowMenuButton:{focus(){focus='menu';}},workflowInspectorClose:{focus(){focus='inspector close';}}};
+    const key=()=>{const event=new Event('keydown',{bubbles:true,cancelable:true});Object.defineProperty(event,'key',{value:'Escape'});return event;};
+    const inside=dialog=>{const target=new EventTarget();target.closest=selector=>{assert.equal(selector,'[role="dialog"][aria-modal="true"]');return dialog;};return target;};
+    const sessionTarget=inside(sessions);app.agentSessions.open=true;
+    sessionTarget.addEventListener('keydown',event=>sessionsEscape.call(app,event));
+    let laterWorkflowCalls=0;
+    sessionTarget.addEventListener('keydown',event=>{laterWorkflowCalls++;workflowEscape.call(app,event);});
+    sessionTarget.dispatchEvent(key());
+    assert.equal(laterWorkflowCalls,0,'The Sessions listener consumes a handled Escape before later window listeners');
+    const closedSessionTarget=inside(sessions);
+    closedSessionTarget.addEventListener('keydown',event=>workflowEscape.call(app,event));closedSessionTarget.dispatchEvent(key());
+    assert.equal(app.agentSessions.open,false);assert.equal(app.workflowInspectorOpen,true,'The later workflow listener must use the event origin, not the now-closed Sessions flag');
+    const headerTarget=inside(null);
+    headerTarget.addEventListener('keydown',event=>workflowEscape.call(app,event));
+    app.showWorkflowDeleteModal=true;headerTarget.dispatchEvent(key());
+    assert.equal(app.workflowInspectorOpen,true,'An unfocused Delete dialog still protects the inspector');app.showWorkflowDeleteModal=false;
+    global.document={querySelectorAll:()=>[{getClientRects:()=>[{}]}]};headerTarget.dispatchEvent(key());
+    assert.equal(app.workflowInspectorOpen,true,'Other visible modal dialogs protect the inspector even when the opener keeps focus');document.querySelectorAll=()=>[];
+    app.workflow={workflow:{id:'one',status:'stopped'},stages:[{id:'choose',choice_error:'Fixture alternatives exhausted'}]};
+    document.activeElement=trigger;app.$refs.choiceRetryReason={focus(){focus='retry reason';}};
+    app.openChoiceRetry({id:'alpha',title:'Alpha',generated_by_stage_id:'choose',option_state:'unavailable'});
+    assert.equal(app.showChoiceRetryModal,true);assert.equal(focus,'retry reason');
+    const retryTarget=inside(retry);app.choiceRetrySaving=true;
+    retryTarget.addEventListener('keydown',event=>{retryEscape.call(app,event);event.stopPropagation();});
+    retryTarget.addEventListener('keydown',event=>workflowEscape.call(app,event));
+    retryTarget.dispatchEvent(key());
+    assert.equal(app.showChoiceRetryModal,true);assert.equal(app.workflowInspectorOpen,true);assert.equal(focus,'retry reason','Saving keeps focus in the live retry dialog');
+    app.choiceRetrySaving=false;retryTarget.dispatchEvent(key());
+    assert.equal(app.showChoiceRetryModal,false);assert.equal(app.workflowInspectorOpen,true);assert.equal(focus,'retry trigger');
+    const menuTarget=inside(null);app.workflowMenuOpen=true;
+    menuTarget.addEventListener('keydown',event=>workflowEscape.call(app,event));menuTarget.dispatchEvent(key());
+    assert.equal(app.workflowMenuOpen,false);assert.equal(app.workflowInspectorOpen,true);assert.equal(focus,'menu');
+    const inspectorTarget=inside(inspector);app._workflowInspectorReturnFocus=trigger;
+    inspectorTarget.addEventListener('keydown',event=>workflowEscape.call(app,event));inspectorTarget.dispatchEvent(key());
+    assert.equal(app.workflowInspectorOpen,false,'Escape originating in the inspector still closes it');
+    """)
+
+
+def test_workflow_drawer_uses_css_media_query_at_fractional_widths():
+    run_ui("""
+    const app=waylineApp();let matches=false,queries=[];
+    global.window={innerWidth:959.5,matchMedia(query){queries.push(query);return {matches};}};
+    app.syncWorkflowInspectorViewport();assert.equal(app.workflowInspectorOverlay,false,'959.5px is outside CSS max-width959px despite being below960');
+    matches=true;window.innerWidth=959;app.syncWorkflowInspectorViewport();assert.equal(app.workflowInspectorOverlay,true);
+    matches=false;window.innerWidth=960;app.syncWorkflowInspectorViewport();assert.equal(app.workflowInspectorOverlay,false);
+    assert.deepEqual(queries,['(max-width: 959px)','(max-width: 959px)','(max-width: 959px)']);
+    """)
