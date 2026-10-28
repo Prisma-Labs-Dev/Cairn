@@ -258,27 +258,72 @@ def test_not_applicable_choice_allows_only_authored_absence_gates(client):
     """)
 
 
-def test_workflow_resize_refits_untouched_view_but_preserves_manual_camera_and_disposes():
-    run_ui("""
-    const app=waylineApp();app.view='workflow';app.workflow={workflow:{id:'one',status:'active'},stages:[],collections:[]};
-    const timers=[];const observers=[];const graphs=[];const listeners={};let size={width:880,height:480};
-    global.document={getElementById:()=>({getBoundingClientRect:()=>size,addEventListener:(name,fn)=>listeners[name]=fn,removeEventListener:(name)=>delete listeners[name]})};
-    global.setTimeout=fn=>{timers.push(fn);return timers.length;};global.clearTimeout=()=>{};
+def test_workflow_resize_refits_after_node_tap_and_preserves_manual_world_center():
+    cytoscape = Path(__file__).parents[1] / "src/wayline/server/static/vendor/cytoscape.min.js"
+    run_ui("const realCy=require(" + json.dumps(str(cytoscape)) + ");" + """
+    const app=waylineApp();app.view='workflow';app.selectedWorkflowId='one';
+    app.workflow={workflow:{id:'one',status:'completed'},stages:[{id:'a',title:'First goal',status:'completed',depends_on:[]},{id:'b',title:'Second goal',status:'completed',depends_on:['a']}],collections:[]};
+    const timers=[],observers=[],graphs=[];let size={width:840,height:800};
+    global.document={getElementById:()=>({getBoundingClientRect:()=>size})};
+    const nativeTimeout=global.setTimeout;
+    global.setTimeout=(fn,delay,...args)=>{if(delay===80){timers.push(fn);return 0;}return nativeTimeout(fn,delay,...args);};
     global.ResizeObserver=class {constructor(fn){this.update=fn;observers.push(this);}observe(){}disconnect(){this.disconnected=true;}};
-    global.cytoscape=options=>{
-      const graph={fits:0,resizes:0,on(){},elements:()=>({removeClass(){}}),getElementById:()=>({addClass(){}}),resize(){this.resizes++;},fit(){this.fits++;},destroy(){this.destroyed=true;}};
-      graphs.push(graph);assert.equal(options.layout.animate,false);return graph;
+    global.cytoscape=options=>{const graph=realCy({...options,container:undefined,headless:true,styleEnabled:true,layout:{name:'preset'}});graphs.push(graph);return graph;};
+    app.initWorkflowGraph();const graph=app.workflowCy;
+    graph.getElementById('stage:a').position({x:120,y:80});graph.getElementById('stage:b').position({x:120,y:240});
+    const checkCentered=()=>{
+      const bounds=graph.elements().boundingBox(), pan=graph.pan(),zoom=graph.zoom();
+      assert.ok(Math.abs((bounds.x1+bounds.x2)/2*zoom+pan.x-size.width/2)<0.01);
+      assert.ok(Math.abs((bounds.y1+bounds.y2)/2*zoom+pan.y-size.height/2)<0.01);
+      assert.ok(zoom<=1.05,'Small graphs cannot grow into giant nodes');
     };
-    app.cy={destroy(){throw Error('Project graph is a separate instance');}};
-    app.initWorkflowGraph();observers[0].update();timers[0]();assert.equal(graphs[0].fits,1);
-    observers[0].update();assert.equal(timers.length,1,'Repeated same-size notifications do not change camera');
-    size={width:390,height:220};observers[0].update();timers[1]();assert.equal(graphs[0].fits,2,'Untouched desktop view refits on phone');
-    listeners.wheel();size={width:880,height:480};observers[0].update();timers[2]();assert.equal(graphs[0].fits,2,'Manual camera is retained after resize');
+    observers[0].update();timers[0]();checkCentered();
+    observers[0].update();assert.equal(timers.length,1,'Repeated dimensions do not move the camera');
+    graph.getElementById('stage:a').emit('tap');
+    assert.equal(app.workflowInspectorOpen,true);assert.equal(app.workflowCameraTouched,false,'Node selection is not camera manipulation');
+    size={width:720,height:1000};observers[0].update();timers[1]();checkCentered();
+    size={width:390,height:760};observers[0].update();timers[2]();checkCentered();
+    graph.zoom(1.6);graph.pan({x:112,y:224});graph.emit('dragpan');
+    const before={x:(size.width/2-graph.pan('x'))/graph.zoom(),y:(size.height/2-graph.pan('y'))/graph.zoom()};
+    size={width:1280,height:660};observers[0].update();timers[3]();
+    assert.equal(graph.zoom(),1.6,'Manual zoom is retained');
+    assert.ok(Math.abs((size.width/2-graph.pan('x'))/graph.zoom()-before.x)<0.01);
+    assert.ok(Math.abs((size.height/2-graph.pan('y'))/graph.zoom()-before.y)<0.01);
+    size={width:920,height:660};observers[0].update();timers[4]();
+    assert.equal(graph.zoom(),1.6,'Docking details preserves a manually chosen camera');
     size={width:900,height:500};observers[0].update();app.disposeWorkflowGraph();
-    assert.equal(graphs[0].destroyed,true);assert.equal(observers[0].disconnected,true);
-    assert.deepEqual(Object.keys(listeners),[]);
-    app.initWorkflowGraph();timers[3]();assert.equal(graphs[1].resizes,0,'Old pending callback cannot resize replacement workflow');
-    app.disposeWorkflowGraph();
+    assert.equal(graph.destroyed(),true);assert.equal(observers[0].disconnected,true);
+    app.initWorkflowGraph();const replacement=app.workflowCy;
+    timers[5]();assert.equal(app._workflowViewportSize,null,'Stale observer cannot move the replacement graph');
+    app.disposeWorkflowGraph();assert.equal(replacement.destroyed(),true);
+    """)
+
+
+def test_workflow_inspector_is_on_demand_closable_and_keeps_selection():
+    run_ui("""
+    const app=waylineApp();app.selectedWorkflowId='one';app.workflowMenuOpen=true;
+    app.workflow={workflow:{id:'one'},stages:[{id:'goal',title:'Goal',status:'active',depends_on:[]}],collections:[]};
+    let focused='',returnFocused=0;
+    const origin={isConnected:true,focus(){returnFocused++;}};
+    const close={focus(){focused='close';},getClientRects:()=>[{}]};
+    const last={focus(){focused='last';},getClientRects:()=>[{}]};
+    global.document={activeElement:origin};app.$nextTick=fn=>fn();
+    app.$refs={workflowInspectorClose:close,workflowScroll:{scrollTop:12,querySelectorAll:()=>[close,last]}};
+    assert.equal(app.workflowInspectorOpen,false);
+    app.selectWorkflowRecord('stage','goal');
+    assert.equal(app.workflowInspectorOpen,true);assert.equal(app.workflowMenuOpen,false);assert.equal(focused,'close');
+    app.workflowInspectorOverlay=true;document.activeElement=last;let prevented=0;
+    app.workflowInspectorKeydown({key:'Tab',shiftKey:false,preventDefault(){prevented++;}});
+    assert.equal(focused,'close');assert.equal(prevented,1);
+    document.activeElement=close;
+    app.workflowInspectorKeydown({key:'Tab',shiftKey:true,preventDefault(){prevented++;}});
+    assert.equal(focused,'last');assert.equal(prevented,2);
+    app.closeWorkflowInspector();assert.equal(app.workflowInspectorOpen,false);assert.equal(returnFocused,1);
+    assert.deepEqual(app.workflowSelectedRecord,{type:'stage',id:'goal'});
+    assert.deepEqual(app.workflowRecordSelections.one,{type:'stage',id:'goal'});
+    app.ensureWorkflowSelection({nodes:[],edges:[]});
+    assert.equal(app.workflowInspectorOpen,false,'An invalidated record cannot open a hidden drawer');
+    app.selectWorkflowRecord('overview','overview');assert.equal(app.workflowInspectorOpen,true);
     """)
 
 

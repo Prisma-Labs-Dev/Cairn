@@ -374,13 +374,15 @@ its captured bytes cannot be replaced by a later stage changing the same workspa
 
 ## Read the workflow graph
 
-A workflow opens as a stage graph beside one inspector. Rounded nodes are stage goals;
+A workflow opens as a full canvas with details closed. The compact header holds the name,
+status, completion count, **Outputs** and **Sessions**. **More** holds the accessible
+stage list, layout, status help and pause/resume/Trash controls. Rounded nodes are stage goals;
 arrows explain prerequisites. Select a stage to read its full goal, recorded completion,
 required and collected files, earlier findings, recovery errors, and agent sessions.
 **Open stage graph** opens that stage's fact/intent graph. A pending completion review,
 its evidence references and its recorded snapshot can be read in the inspector without
 treating the claim as an accepted completion. Failed review reads show a retry action.
-**Workflow outputs** retains the starting context and lists collected files across the workflow; files and worker reports
+**Outputs** opens a compact file list and the starting context in the same details panel; files and worker reports
 remain separate from independent verification.
 
 Choose-one discoveries have a diamond gate. Only the selected option feeds that gate;
@@ -399,12 +401,19 @@ unavailable and skipped states retain their separate meanings. A ready stage awa
 admission is distinguished from a recovery block; a ready stage held by a stopped
 workflow is shown as paused.
 
-On phones the graph sits above the inspector. Use the zoom buttons or pan the canvas to
-read a branch, or select **Stages and dependencies** for keyboard-accessible buttons that
-open the same inspector. The graph's layout selector and **Fit graph** are explicit camera
-actions. Polling preserves camera and selection; newly discovered branches are placed near
-their sources without recentering the graph. Untouched graphs refit when their container
-changes size, while a manually adjusted view is retained.
+Select a node or arrow to open its details. At desktop widths the panel docks on the
+right; below 960 pixels it overlays the canvas, without stacking another permanent area
+underneath. Close, Escape or the backdrop returns to the canvas. The overlay traps keyboard
+focus and returns it to the opening control when closed.
+
+Use the floating **Fit** and zoom buttons, or pan the canvas to read a branch. Under
+**More**, **Stages and dependencies** offers keyboard-accessible buttons for stages,
+arrows and collections. Layout changes and Fit center the graph; small graphs have a
+bounded automatic zoom. Selecting a node does not count as panning. Polling preserves
+camera and selection; newly discovered branches are placed near their sources without
+recentering the graph. Untouched graphs recenter when their container changes size.
+A manually panned or zoomed view retains its zoom and the world position at the center
+of the viewport when the window changes size or the desktop details panel opens.
 
 ## Controls and completion
 

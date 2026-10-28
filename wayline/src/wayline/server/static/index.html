@@ -18,6 +18,24 @@
   [x-cloak] { display: none !important; }
   #cy { width: 100%; height: 100%; }
   #workflowCy { width: 100%; min-height: 0; }
+  .workflow-header { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 10px 16px; }
+  .workflow-actions { display: flex; align-items: center; gap: 6px; }
+  .workflow-action { border: 1px solid #e2e8f0; border-radius: 8px; padding: 7px 10px; font-size: 12px; color: #475569; background: white; white-space: nowrap; }
+  .workflow-action:hover { background: #f8fafc; }
+  .workflow-menu { position: absolute; right: 0; top: calc(100% + 8px); width: min(300px,calc(100vw - 24px)); z-index: 40; }
+  .workflow-inspector { width: 360px; max-width: 100%; flex-shrink: 0; border-left: 1px solid #e2e8f0; background: white; overflow-y: auto; z-index: 30; }
+  .workflow-inspector > section, .workflow-inspector > article { margin: 16px; }
+  .workflow-detail-header { position: sticky; top: 0; background: white; z-index: 1; display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #e2e8f0; }
+  .workflow-backdrop { display: none; }
+  @media (max-width: 959px) {
+    .workflow-inspector { position: absolute; inset: 0 0 0 auto; width: min(400px,calc(100% - 24px)); box-shadow: -12px 0 32px rgba(15,23,42,.12); }
+    .workflow-backdrop { display: block; position: absolute; inset: 0; background: rgba(15,23,42,.2); z-index: 20; }
+  }
+  @media (max-width: 559px) {
+    .workflow-header { gap: 6px; padding: 8px; }
+    .workflow-actions { gap: 4px; }
+    .workflow-action { padding: 6px; font-size: 11px; }
+  }
   @media (max-width: 767px) {
     #graphHeader { flex-wrap: wrap; gap: 8px; }
     #graphHeader .title-action-trigger { flex: 1 0 calc(100% - 48px); }
@@ -25,9 +43,6 @@
     #graphHeader .graph-counts { order: 2; }
     #graphHeader .graph-preferences { order: 2; margin-left: auto; }
     #graphHeader .graph-actions { order: 3; width: 100%; flex-wrap: wrap; }
-    #workflowLayout { flex-direction: column; }
-    #workflowLayout .workflow-canvas { min-height: min(320px,45vh); flex-basis: 62%; }
-    #workflowLayout .workflow-inspector { width: 100%; flex-basis: 38%; border-left: 0; border-top: 1px solid #e2e8f0; }
     #graphLayout { flex-direction: column; min-height: 0; }
     #graphLayout .graph-canvas { min-height: 220px; }
     #graphLayout .graph-panel-resize { display: none; }
@@ -565,53 +580,51 @@
 
 <!-- Workflow view -->
 <template x-if="view === 'workflow' && workflow">
-  <div class="flex-1 flex flex-col overflow-hidden">
-    <header class="bg-white border-b border-slate-200 px-4 py-3 flex flex-wrap items-center gap-3 shrink-0">
+  <div class="flex-1 flex flex-col overflow-hidden" @resize.window="workflowInspectorOverlay = window.innerWidth < 960" @keydown.escape.window="if (view === 'workflow' && !agentSessions.open && !showWorkflowDeleteModal) { if (workflowMenuOpen) { workflowMenuOpen = false; $refs.workflowMenuButton.focus(); } else closeWorkflowInspector(); }">
+    <header class="workflow-header bg-white border-b border-slate-200 shrink-0" :inert="workflowInspectorOpen && workflowInspectorOverlay">
       <button @click="backToList()" aria-label="Back to all projects" class="p-2 rounded-lg text-slate-500 hover:bg-slate-100">&larr;</button>
-      <div class="min-w-0 flex-1">
-        <p class="text-[10px] uppercase tracking-widest text-brand-500 font-semibold">Workflow</p>
-        <h1 class="font-semibold text-slate-700 truncate" x-text="workflow.workflow.title"></h1>
+      <div class="min-w-0">
+        <h1 class="font-semibold text-sm text-slate-700 truncate" :title="workflow.workflow.title" x-text="workflow.workflow.title"></h1>
+        <div class="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500 whitespace-nowrap"><span :class="projectStatusBadgeClass(workflow.workflow.status)" class="rounded px-1.5 py-0.5 text-[10px] font-medium" x-text="workflow.workflow.deleted_at ? 'In Trash' : workflowStatusLabel(workflow.workflow.status)"></span><span :title="`${workflowRequiredStages().filter(stage => stage.status === 'completed').length} of ${workflowRequiredTotal()} applicable goals completed`" x-text="`${workflowRequiredStages().filter(stage => stage.status === 'completed').length}/${workflowRequiredTotal()}`"></span><span x-show="workflowNotApplicableStages().length" :title="`${workflowNotApplicableStages().length} stages not applicable`" x-text="`${workflowNotApplicableStages().length} n/a`"></span></div>
       </div>
-      <span class="px-2 py-1 rounded-full text-[10px] uppercase font-semibold" :class="projectStatusBadgeClass(workflow.workflow.status)" x-text="workflowStatusLabel(workflow.workflow.status)"></span>
-      <div class="flex flex-wrap justify-end gap-2 w-full sm:w-auto">
-        <button @click="openAgentSessions({workflow_id: workflow.workflow.id}, workflow.workflow.title)" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs text-slate-600 hover:bg-slate-50">Agent sessions</button>
-        <button x-show="!workflow.workflow.deleted_at && workflow.workflow.status !== 'completed'" @click="toggleWorkflowStatus()" :disabled="!!workflowActionId" class="px-3 py-1.5 rounded-lg border text-xs disabled:opacity-40" :class="workflow.workflow.status === 'active' ? 'border-amber-200 text-amber-700 hover:bg-amber-50' : 'border-teal-200 text-teal-700 hover:bg-teal-50'" x-text="workflowActionId ? 'Saving...' : workflow.workflow.status === 'active' ? 'Pause workflow' : 'Resume workflow'"></button>
-        <button x-show="!workflow.workflow.deleted_at" @click="requestWorkflowDelete(workflow.workflow.id, workflow.workflow.title)" :disabled="!!workflowActionId" class="px-3 py-1.5 rounded-lg border border-rose-200 text-xs text-rose-600 hover:bg-rose-50 disabled:opacity-40">Delete</button>
-        <button x-show="workflow.workflow.deleted_at" @click="restoreWorkflow(workflow.workflow.id)" :disabled="!!workflowActionId" class="px-3 py-1.5 rounded-lg border border-brand-200 text-xs text-brand-600 hover:bg-brand-50 disabled:opacity-40">Restore</button>
+      <div class="workflow-actions">
+        <button @click="selectWorkflowRecord('overview','overview')" :aria-expanded="workflowInspectorOpen && workflowSelectedRecord.type === 'overview'" class="workflow-action" x-text="`Outputs (${workflowOutputArtifacts().length})`"></button>
+        <button @click="openAgentSessions({workflow_id: workflow.workflow.id}, workflow.workflow.title)" class="workflow-action">Sessions</button>
+        <div class="relative" @click.outside="workflowMenuOpen = false">
+          <button x-ref="workflowMenuButton" @click="workflowMenuOpen = !workflowMenuOpen" :aria-expanded="workflowMenuOpen" aria-controls="workflowMenu" class="workflow-action" aria-label="More workflow options">More ▾</button>
+          <div x-show="workflowMenuOpen" x-cloak id="workflowMenu" class="workflow-menu rounded-xl border border-slate-200 bg-white shadow-xl p-3 space-y-3">
+            <div class="flex gap-1"><button @click="setWorkflowDisplayMode('graph'); workflowMenuOpen = false" :aria-pressed="workflowDisplayMode === 'graph'" class="workflow-action flex-1">Graph</button><button @click="setWorkflowDisplayMode('list'); workflowMenuOpen = false" :aria-pressed="workflowDisplayMode === 'list'" class="workflow-action flex-1">Stages and dependencies</button></div>
+            <label class="block text-xs text-slate-500">Layout<select aria-label="Workflow graph layout" x-model="workflowLayoutMode" @change="applyWorkflowLayout(); workflowMenuOpen = false" class="ml-2 rounded-lg border border-slate-200 p-1 text-xs"><option value="dagre_tb">Dagre ↓</option><option value="dagre_lr">Dagre →</option><option value="klay_tb">Klay ↓</option><option value="klay_lr">Klay →</option><option value="elk_tb">ELK ↓</option><option value="elk_lr">ELK →</option></select></label>
+            <details class="text-xs text-slate-500"><summary class="cursor-pointer font-medium">Graph and status help</summary><p class="mt-2">Stages are goals; arrows explain prerequisites. Select either to read details. Active means admitted work, not a confirmed running process. Completion reports and collected files remain separate from independent verification.</p><p class="mt-2">Drag to pan; scroll or pinch to zoom. Fit centers all stages. Polling preserves your view.</p></details>
+            <div class="border-t border-slate-100 pt-2 flex flex-col items-start gap-2">
+              <button x-show="!workflow.workflow.deleted_at && workflow.workflow.status !== 'completed'" @click="toggleWorkflowStatus(); workflowMenuOpen = false" :disabled="!!workflowActionId" class="text-xs text-slate-600 disabled:opacity-40" x-text="workflowActionId ? 'Saving...' : workflow.workflow.status === 'active' ? 'Pause workflow' : 'Resume workflow'"></button>
+              <p x-show="workflow.workflow.deleted_at" class="text-xs text-slate-500">In Trash. Graphs, files and history remain available.</p>
+              <button x-show="workflow.workflow.deleted_at" @click="restoreWorkflow(workflow.workflow.id); workflowMenuOpen = false" :disabled="!!workflowActionId" class="text-xs text-brand-600">Restore workflow</button>
+              <button x-show="workflow.workflow.deleted_at" @click="openWorkflowTrash()" class="text-xs text-slate-500">Open Trash</button>
+              <button x-show="!workflow.workflow.deleted_at" @click="requestWorkflowDelete(workflow.workflow.id, workflow.workflow.title); workflowMenuOpen = false" :disabled="!!workflowActionId" class="text-xs text-rose-600 disabled:opacity-40">Move to Trash</button>
+            </div>
+          </div>
+        </div>
       </div>
     </header>
-    <main class="flex-1 min-h-0 flex flex-col overflow-hidden">
-        <section x-show="workflow.workflow.deleted_at" class="border-b border-amber-200 bg-amber-50 px-4 py-3"><h2 class="text-sm font-semibold text-amber-800">This workflow is in Trash</h2><p class="text-xs text-amber-800 mt-1">Its graphs, files, and history remain available to read. Restore the workflow before changing or resuming it.</p><button @click="openWorkflowTrash()" class="text-xs font-medium text-brand-600 hover:text-brand-700 mt-2">Open Trash</button></section>
-        <section class="bg-white border-b border-slate-200 px-4 py-3">
-          <div class="flex flex-wrap justify-between items-center gap-3">
-            <h2 class="text-sm font-semibold text-slate-700" x-text="`${workflowRequiredStages().filter(stage => stage.status === 'completed').length} of ${workflowRequiredTotal()} applicable goals completed`"></h2>
-            <span class="hidden sm:inline text-xs text-slate-500" x-text="workflow.workflow.status === 'completed' ? 'Workflow complete' : 'Each stage waits for all its prerequisites'"></span>
-          </div>
-          <div class="h-2 bg-slate-100 rounded-full mt-3 overflow-hidden"><div class="h-full bg-brand-500 rounded-full transition-all" :style="`width:${workflowProgress()}%`"></div></div>
-          <p x-show="workflowNotApplicableStages().length" class="text-xs text-slate-500 mt-3" x-text="`${workflowNotApplicableStages().length} stage${workflowNotApplicableStages().length === 1 ? '' : 's'} did not apply. Their conditions and reasons remain in the inspector.`"></p>
-          <p x-show="workflow.workflow.status === 'stopped'" class="text-xs text-amber-700 mt-3">Work has stopped. Completed goals and findings are retained.</p>
-        </section>
-      <div id="workflowLayout" class="flex-1 min-h-0 flex overflow-hidden">
-        <section class="workflow-canvas flex-1 min-w-0 relative flex flex-col bg-slate-50" aria-label="Workflow structure">
-          <div class="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-slate-200 bg-white shrink-0">
-            <div class="inline-flex rounded-lg border border-slate-200 p-0.5"><button @click="setWorkflowDisplayMode('graph')" :aria-pressed="workflowDisplayMode === 'graph'" class="px-2.5 py-1 text-xs rounded-md" :class="workflowDisplayMode === 'graph' ? 'bg-brand-50 text-brand-700' : 'text-slate-500'">Graph</button><button @click="setWorkflowDisplayMode('list')" :aria-pressed="workflowDisplayMode === 'list'" class="px-2.5 py-1 text-xs rounded-md" :class="workflowDisplayMode === 'list' ? 'bg-brand-50 text-brand-700' : 'text-slate-500'">Stages and dependencies</button></div>
-            <button @click="fitWorkflowGraph()" x-show="workflowDisplayMode === 'graph' && !workflowGraphError" class="px-2.5 py-1 border border-slate-200 rounded-lg text-xs text-slate-600">Fit graph</button>
-            <div x-show="workflowDisplayMode === 'graph' && !workflowGraphError" class="inline-flex gap-1"><button @click="zoomWorkflowGraph(1.3)" aria-label="Zoom in workflow graph" class="h-7 w-7 border border-slate-200 rounded-lg text-sm text-slate-600">+</button><button @click="zoomWorkflowGraph(1/1.3)" aria-label="Zoom out workflow graph" class="h-7 w-7 border border-slate-200 rounded-lg text-sm text-slate-600">−</button></div>
-            <label x-show="workflowDisplayMode === 'graph' && !workflowGraphError" class="text-xs text-slate-500">Layout<select aria-label="Workflow graph layout" x-model="workflowLayoutMode" @change="applyWorkflowLayout()" class="ml-1 h-7 rounded-lg border border-slate-200 bg-white text-xs"><option value="dagre_tb">Dagre ↓</option><option value="dagre_lr">Dagre →</option><option value="klay_tb">Klay ↓</option><option value="klay_lr">Klay →</option><option value="elk_tb">ELK ↓</option><option value="elk_lr">ELK →</option></select></label>
-            <button @click="selectWorkflowRecord('overview','overview')" class="ml-auto px-2.5 py-1 border border-slate-200 rounded-lg text-xs text-brand-600">Workflow outputs</button>
+    <main id="workflowLayout" class="flex-1 min-h-0 flex overflow-hidden relative">
+        <section class="workflow-canvas flex-1 min-w-0 relative flex flex-col bg-slate-50" :inert="workflowInspectorOpen && workflowInspectorOverlay" aria-label="Workflow structure">
+          <div x-show="workflowDisplayMode === 'graph' && !workflowGraphError" class="absolute bottom-4 left-4 z-10 flex items-center gap-1 rounded-xl border border-slate-200 bg-white/95 shadow-sm p-1">
+            <button @click="fitWorkflowGraph()" class="px-3 py-1.5 text-xs text-slate-600">Fit</button><button @click="zoomWorkflowGraph(1.3)" aria-label="Zoom in workflow graph" class="h-7 w-7 rounded-lg text-sm text-slate-600 hover:bg-slate-50">+</button><button @click="zoomWorkflowGraph(1/1.3)" aria-label="Zoom out workflow graph" class="h-7 w-7 rounded-lg text-sm text-slate-600 hover:bg-slate-50">−</button>
           </div>
           <p x-show="workflowGraphError" role="alert" class="px-4 py-2 text-xs text-amber-700 bg-amber-50" x-text="workflowGraphError"></p>
-          <p x-show="workflowTopologyChanged && workflowDisplayMode === 'graph'" class="px-4 py-2 text-[11px] text-brand-600 bg-brand-50">Branches changed. Your view is preserved. Use Fit graph to include them.</p>
-          <div x-show="workflowDisplayMode === 'graph' && !workflowGraphError" id="workflowCy" class="flex-1 min-h-0" role="img" aria-label="Workflow stage graph. Use Stages and dependencies for keyboard navigation."></div>
-          <div x-show="workflowDisplayMode === 'list' || workflowGraphError" class="flex-1 overflow-y-auto p-4 space-y-4">
+          <button x-show="workflowTopologyChanged && workflowDisplayMode === 'graph'" @click="fitWorkflowGraph()" class="absolute top-3 left-3 z-10 rounded-lg border border-brand-100 px-3 py-2 text-xs text-brand-600 bg-white shadow-sm">New branches · Fit all</button>
+          <div x-show="workflowDisplayMode === 'graph' && !workflowGraphError" id="workflowCy" class="flex-1 min-h-0" tabindex="0" role="img" aria-label="Workflow stage graph. Use Stages and dependencies for keyboard navigation."></div>
+          <div x-show="workflowDisplayMode === 'list' || workflowGraphError" id="workflowList" tabindex="-1" aria-label="Stages and dependencies" class="flex-1 overflow-y-auto p-4 space-y-4">
             <section aria-label="Workflow stages"><h2 class="text-xs font-semibold text-slate-600 mb-2">Stages</h2><div class="space-y-2"><template x-for="stage in workflowDisplayStages()" :key="stage.id"><button @click="selectWorkflowRecord('stage',stage.id)" :aria-pressed="workflowSelectedRecord.type === 'stage' && workflowSelectedRecord.id === stage.id" class="w-full text-left rounded-xl border border-slate-200 bg-white px-3 py-2 hover:border-brand-300"><span class="block text-xs font-medium text-slate-700 break-words" x-text="stage.title"></span><span class="block text-[11px] mt-1 text-slate-500" x-text="workflowStageGraphStatus(stage)"></span></button></template></div></section>
             <section x-show="workflowGraphElements().edges.length" aria-label="Workflow dependencies"><h2 class="text-xs font-semibold text-slate-600 mb-2">Dependencies and branch gates</h2><div class="space-y-2"><template x-for="edge in workflowGraphElements().edges" :key="edge.data.id"><button @click="selectWorkflowRecord('edge',edge.data.id)" class="block w-full text-left rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 break-words" x-text="workflowGraphEdgeLabel(edge.data)"></button></template></div></section>
             <section x-show="workflow.collections?.length" aria-label="Workflow collections"><h2 class="text-xs font-semibold text-slate-600 mb-2">Collections</h2><template x-for="collection in workflow.collections || []" :key="collection.name"><button @click="selectWorkflowRecord('collection',collection.name)" class="block text-left text-xs text-brand-600 py-2" x-text="`${collection.name} · ${workflowCollectionStatus(collection)}`"></button></template></section>
           </div>
-          <p class="px-3 py-2 border-t border-slate-200 text-[10px] text-slate-500 bg-white shrink-0">Stages are goals; arrows explain prerequisites. Active means admitted work, not a confirmed running process.</p>
         </section>
-        <aside x-ref="workflowScroll" @scroll.passive="rememberWorkflowScroll()" class="workflow-inspector w-[25rem] min-w-0 shrink-0 border-l border-slate-200 bg-slate-50/50 overflow-y-auto p-4 space-y-4" aria-label="Workflow inspector">
-          <template x-if="workflowSelectedRecord.type === 'overview'"><section class="rounded-2xl border border-slate-200 bg-white p-5"><h2 class="text-sm font-semibold text-slate-700">Workflow outputs</h2><details x-show="workflow.workflow.origin" class="mt-3 text-xs text-slate-600"><summary class="cursor-pointer font-medium text-slate-500">Starting context</summary><p class="mt-2 whitespace-pre-wrap break-words" x-text="workflow.workflow.origin"></p></details><p class="text-xs text-slate-500 mt-3">Select a stage to read its goal, evidence, completion record and sessions.</p><p x-show="!workflowOutputArtifacts().length" class="text-xs text-slate-500 mt-4">No collected workflow artifacts yet. Recorded findings remain in each stage.</p><div class="space-y-3 mt-4"><template x-for="item in workflowOutputArtifacts()" :key="item.artifact.id"><a :href="item.artifact.download_url" class="block rounded-xl border border-slate-200 p-3 text-xs text-brand-600 hover:bg-brand-50"><span class="block font-medium break-words" x-text="item.artifact.label || item.artifact.path"></span><span class="block text-[11px] text-slate-500 mt-1 break-words" x-text="`${item.stage.title} · ${formatArtifactSize(item.artifact.size)}`"></span></a></template></div><p class="text-[11px] text-slate-400 mt-4">Worker completion and collected files remain separate from independent verification.</p></section></template>
+        <button x-show="workflowInspectorOpen" x-cloak @click="closeWorkflowInspector()" class="workflow-backdrop" tabindex="-1" aria-label="Close workflow details"></button>
+        <aside x-show="workflowInspectorOpen" x-cloak x-ref="workflowScroll" @keydown="workflowInspectorKeydown($event)" @scroll.passive="rememberWorkflowScroll()" class="workflow-inspector min-w-0" :role="workflowInspectorOverlay ? 'dialog' : 'complementary'" :aria-modal="workflowInspectorOverlay && workflowInspectorOpen ? 'true' : null" aria-label="Workflow inspector">
+          <div class="workflow-detail-header"><span class="text-xs font-semibold text-slate-500" x-text="workflowSelectedRecord.type === 'overview' ? 'Outputs' : 'Details'"></span><button x-ref="workflowInspectorClose" @click="closeWorkflowInspector()" aria-label="Close workflow details" class="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">✕</button></div>
+          <template x-if="workflowSelectedRecord.type === 'overview'"><section><h2 class="text-sm font-semibold text-slate-700">Workflow outputs</h2><p x-show="!workflowOutputArtifacts().length" class="text-xs text-slate-500 mt-3">No collected files. Recorded findings remain in each stage.</p><ul class="divide-y divide-slate-100 mt-3"><template x-for="item in workflowOutputArtifacts()" :key="item.artifact.id"><li><a :href="item.artifact.download_url" :title="`From ${item.stage.title}`" class="flex items-start justify-between gap-3 py-3 text-xs text-brand-600 hover:text-brand-700"><span class="font-medium break-words min-w-0" x-text="item.artifact.label || item.artifact.path"></span><span class="shrink-0 text-[11px] text-slate-400" x-text="formatArtifactSize(item.artifact.size)"></span></a></li></template></ul><p class="text-[11px] text-slate-400 mt-3">Collected files and worker reports do not establish independent verification.</p><details x-show="workflow.workflow.origin" class="mt-5 text-xs text-slate-600"><summary class="cursor-pointer font-medium text-slate-500">Starting context</summary><p class="mt-2 whitespace-pre-wrap break-words" x-text="workflow.workflow.origin"></p></details></section></template>
           <template x-if="workflowSelectedGraphEdge()"><section class="rounded-2xl border border-slate-200 bg-white p-5"><p class="text-[10px] uppercase tracking-wide text-slate-400">Dependency / branch gate</p><h2 class="text-sm font-semibold text-slate-700 mt-2 break-words" x-text="workflowGraphEdgeLabel(workflowSelectedGraphEdge())"></h2><p class="text-xs text-slate-600 mt-3 whitespace-pre-wrap break-words" x-text="workflowSelectedGraphEdge().explanation"></p><p x-show="workflowSelectedGraphEdge().condition" class="text-xs text-slate-600 mt-3 break-words" x-text="`Condition: ${workflowSelectedGraphEdge().condition}`"></p><p x-show="workflowSelectedGraphEdge().allowAbsent" class="text-xs text-slate-500 mt-3">A not-applicable source is allowed by this dependency.</p><p x-show="workflowSelectedGraphEdge().reason" class="text-xs text-amber-700 mt-3 break-words" x-text="workflowSelectedGraphEdge().reason"></p><section x-show="workflowSelectedGraphEdge().destinationOutcome" class="mt-3 rounded-lg border border-slate-200 p-3"><h3 class="text-xs font-medium text-slate-600">Destination outcome</h3><p class="text-xs text-slate-600 mt-2 break-words" x-text="workflowSelectedGraphEdge().destinationOutcome"></p><p class="text-[11px] text-slate-500 mt-2">This is the destination's recorded outcome, not a cause attributed to this individual arrow.</p></section><div class="flex flex-wrap gap-3 mt-4"><button @click="selectWorkflowGraphNode(workflowSelectedGraphEdge().source)" class="text-xs text-brand-600">Read source</button><button @click="selectWorkflowGraphNode(workflowSelectedGraphEdge().target)" class="text-xs text-brand-600">Read destination</button></div></section></template>
           <template x-if="workflowSelectedRecord.type === 'choice'"><section class="rounded-2xl border border-slate-200 bg-white p-5"><h2 class="text-sm font-semibold text-slate-700">Choose-one gate</h2><p class="text-xs text-slate-600 mt-3" x-text="workflow.stages.find(stage => stage.id === workflowSelectedRecord.id)?.status === 'not_applicable' ? 'The proposal did not apply. Dependencies that explicitly allow its absence may proceed without selecting an option.' : 'The proposal and one selected option must succeed before later stages start. Unselected, unavailable and skipped alternatives are retained without becoming required goals.'"></p><button @click="selectWorkflowRecord('stage',workflowSelectedRecord.id)" class="text-xs text-brand-600 mt-4">Read proposal and selection reasons</button></section></template>
         <template x-if="workflowInspectorCollections().length">
@@ -810,7 +823,6 @@
           </article>
         </template>
         </aside>
-      </div>
     </main>
   </div>
 </template>
@@ -1754,6 +1766,9 @@ function waylineApp() {
     workflowCy: null,
     workflowSelectedRecord: {type:'overview',id:'overview'},
     workflowRecordSelections: {},
+    workflowInspectorOpen: false,
+    workflowInspectorOverlay: false,
+    workflowMenuOpen: false,
     workflowDisplayMode: 'graph',
     workflowLayoutMode: 'dagre_tb',
     workflowGraphError: '',
@@ -2762,6 +2777,9 @@ function waylineApp() {
       }
       if (this.view === 'usage') this.cancelUsageLoad();
       this.disposeWorkflowGraph();
+      this.workflowInspectorOpen = false;
+      this.workflowMenuOpen = false;
+      this.workflowInspectorOverlay = typeof window !== 'undefined' && window.innerWidth < 960;
       this.workflowSelectedRecord = this.workflowRecordSelections[id] || {type:'overview',id:'overview'};
       this.stopReplayTimer();
       this.replay.active = false;
@@ -2915,7 +2933,7 @@ function waylineApp() {
     ensureWorkflowSelection(data) {
       const wanted = new Set([...data.nodes,...data.edges].map(item => item.data.id));
       const record = this.workflowSelectedRecord;
-      if (record.type !== 'overview' && !wanted.has(record.type === 'edge' ? record.id : `${record.type}:${record.id}`)) this.selectWorkflowRecord('overview','overview');
+      if (record.type !== 'overview' && !wanted.has(record.type === 'edge' ? record.id : `${record.type}:${record.id}`)) this.selectWorkflowRecord('overview','overview',false);
     },
 
     selectWorkflowGraphNode(id) {
@@ -2923,11 +2941,37 @@ function waylineApp() {
       if (node) this.selectWorkflowRecord(node.data.recordType,node.data.recordId);
     },
 
-    selectWorkflowRecord(type,id) {
+    selectWorkflowRecord(type,id,openInspector = true) {
       this.workflowSelectedRecord = {type,id};
       if (this.selectedWorkflowId) this.workflowRecordSelections[this.selectedWorkflowId] = {type,id};
       if (this.$refs?.workflowScroll) this.$refs.workflowScroll.scrollTop = 0;
       this.highlightWorkflowSelection();
+      if (openInspector) this.openWorkflowInspector();
+    },
+
+    openWorkflowInspector() {
+      if (!this.workflowInspectorOpen && typeof document !== 'undefined') this._workflowInspectorReturnFocus = document.activeElement === document.body ? document.getElementById('workflowCy') : document.activeElement;
+      this.workflowInspectorOpen = true;
+      this.workflowMenuOpen = false;
+      this.$nextTick?.(() => this.$refs?.workflowInspectorClose?.focus());
+    },
+
+    closeWorkflowInspector() {
+      if (!this.workflowInspectorOpen) return;
+      this.workflowInspectorOpen = false;
+      this.$nextTick?.(() => {
+        const target = this._workflowInspectorReturnFocus;
+        if (target?.isConnected && target.focus) target.focus();
+        else document.getElementById('workflowCy')?.focus();
+      });
+    },
+
+    workflowInspectorKeydown(event) {
+      if (event.key !== 'Tab' || !this.workflowInspectorOverlay) return;
+      const controls = [...this.$refs.workflowScroll.querySelectorAll('button:not([disabled]),a[href],summary,select,input,textarea,[tabindex="0"]')].filter(element => element.getClientRects().length);
+      const first = controls[0], last = controls.at(-1);
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
     },
 
     highlightWorkflowSelection() {
@@ -2951,23 +2995,26 @@ function waylineApp() {
 
     setWorkflowDisplayMode(mode) {
       this.workflowDisplayMode = mode;
-      if (mode === 'graph') this.$nextTick(() => {
-        if (this.workflowCy) this.workflowCy.resize();
-        else this.initWorkflowGraph();
+      this.$nextTick(() => {
+        if (mode === 'graph') {
+          if (this.workflowCy) this.resizeWorkflowGraph(document.getElementById('workflowCy').getBoundingClientRect());
+          else this.initWorkflowGraph();
+        }
+        document.getElementById(mode === 'graph' ? 'workflowCy' : 'workflowList')?.focus();
       });
     },
 
     workflowGraphPadding() {
-      return typeof window !== 'undefined' && window.innerWidth < 768 ? 12 : 45;
+      return typeof window !== 'undefined' && window.innerWidth < 768 ? 24 : 40;
     },
 
     workflowLayoutOptions() {
-      return {...this.layoutOpts(false,this.workflowLayoutMode),nodeSep:32,rankSep:44,minLen:edge => edge.data("edgeType") === "choice-recovery" ? 2 : 1,padding:this.workflowGraphPadding()};
+      return {...this.layoutOpts(false,this.workflowLayoutMode),fit:false,nodeSep:40,rankSep:60,minLen:edge => edge.data("edgeType") === "choice-recovery" ? 2 : 1,padding:this.workflowGraphPadding()};
     },
 
     workflowGraphStyles() {
       return [
-        {selector:'node',style:{shape:'round-rectangle',width:180,height:76,label:'data(label)','font-family':'-apple-system,BlinkMacSystemFont,Inter,sans-serif','font-size':12,'font-weight':500,'text-valign':'center','text-halign':'center','text-wrap':'wrap','text-max-width':160,'background-color':'#eef2ff',color:'#4338ca','border-width':1.5,'border-color':'#a5b4fc'}},
+        {selector:'node',style:{shape:'round-rectangle',width:228,height:88,label:'data(label)','font-family':'-apple-system,BlinkMacSystemFont,Inter,sans-serif','font-size':12,'font-weight':500,'text-valign':'center','text-halign':'center','text-wrap':'wrap','text-max-width':204,'background-color':'#eef2ff',color:'#4338ca','border-width':1.5,'border-color':'#a5b4fc'}},
         {selector:'node[state="completed"]',style:{'background-color':'#ecfdf5',color:'#047857','border-color':'#6ee7b7'}},
         {selector:'node[state="active"]',style:{'background-color':'#e0e7ff',color:'#3730a3','border-color':'#818cf8','border-width':2}},
         {selector:'node[state="review"]',style:{'background-color':'#fffbeb',color:'#92400e','border-color':'#fbbf24'}},
@@ -2999,25 +3046,25 @@ function waylineApp() {
         const graph = this.workflowCy;
         graph.on('tap','node',event => this.selectWorkflowGraphNode(event.target.id()));
         graph.on('tap','edge',event => this.selectWorkflowRecord('edge',event.target.id()));
+        graph.on('layoutstop',() => {
+          if (this.workflowCy === graph && this.view === 'workflow' && !this.workflowCameraTouched) this.resizeWorkflowGraph(container.getBoundingClientRect());
+        });
         this.highlightWorkflowSelection();
-        let previousSize = null;
         this.workflowCameraTouched = false;
-        const touch = () => { this.workflowCameraTouched = true; };
-        this._workflowCameraElement = container;
-        this._workflowCameraListener = touch;
-        container.addEventListener('pointerdown',touch,{passive:true});
-        container.addEventListener('wheel',touch,{passive:true});
+        this._workflowViewportSize = null;
+        // Cytoscape gesture events exclude taps and programmatic camera changes.
+        graph.on('dragpan scrollzoom pinchzoom',() => { this.workflowCameraTouched = true; });
+        let observedSize = null;
         this._workflowResizeObserver = new ResizeObserver(() => {
           const rect = container.getBoundingClientRect();
           if (!rect.width || !rect.height) return;
-          if (previousSize && Math.abs(rect.width - previousSize.width) < 0.5 && Math.abs(rect.height - previousSize.height) < 0.5) return;
-          previousSize = {width:rect.width,height:rect.height};
+          if (observedSize && Math.abs(rect.width - observedSize.width) < 0.5 && Math.abs(rect.height - observedSize.height) < 0.5) return;
+          observedSize = {width:rect.width,height:rect.height};
           clearTimeout(this._workflowResizeTimer);
           this._workflowResizeTimer = setTimeout(() => {
             if (this.workflowCy !== graph || this.view !== 'workflow') return;
-            graph.resize();
-            if (!this.workflowCameraTouched) graph.fit(undefined,this.workflowGraphPadding());
-          },100);
+            this.resizeWorkflowGraph(container.getBoundingClientRect());
+          },80);
         });
         this._workflowResizeObserver.observe(container);
       } catch (error) {
@@ -3026,11 +3073,29 @@ function waylineApp() {
       }
     },
 
+    resizeWorkflowGraph(size) {
+      const graph = this.workflowCy;
+      if (!graph || !size.width || !size.height) return;
+      const previous = this._workflowViewportSize;
+      const zoom = graph.zoom(), pan = graph.pan();
+      const center = previous ? {x:(previous.width/2-pan.x)/zoom,y:(previous.height/2-pan.y)/zoom} : null;
+      graph.resize();
+      if (this.workflowCameraTouched && center) {
+        graph.viewport({zoom,pan:{x:size.width/2-center.x*zoom,y:size.height/2-center.y*zoom}});
+      } else {
+        const bounds = graph.elements().boundingBox();
+        const padding = this.workflowGraphPadding();
+        const fitZoom = Math.max(0.12,Math.min(1.05,(size.width-padding*2)/Math.max(1,bounds.w),(size.height-padding*2)/Math.max(1,bounds.h)));
+        graph.viewport({zoom:fitZoom,pan:{x:size.width/2-(bounds.x1+bounds.x2)/2*fitZoom,y:size.height/2-(bounds.y1+bounds.y2)/2*fitZoom}});
+      }
+      this._workflowViewportSize = {width:size.width,height:size.height};
+    },
+
     fitWorkflowGraph() {
       if (!this.workflowCy) return;
-      this.workflowCy.resize();
-      this.workflowCy.fit(undefined,this.workflowGraphPadding());
-      this.workflowCameraTouched = true;
+      this.workflowCameraTouched = false;
+      const container = typeof document !== 'undefined' ? document.getElementById('workflowCy') : null;
+      this.resizeWorkflowGraph(container ? container.getBoundingClientRect() : {width:this.workflowCy.width(),height:this.workflowCy.height()});
       this.workflowTopologyChanged = false;
     },
 
@@ -3043,8 +3108,8 @@ function waylineApp() {
 
     applyWorkflowLayout() {
       if (!this.workflowCy) return;
+      this.workflowCy.one('layoutstop',() => this.fitWorkflowGraph());
       this.workflowCy.layout(this.workflowLayoutOptions()).run();
-      this.workflowCameraTouched = true;
       this.workflowTopologyChanged = false;
     },
 
@@ -3088,12 +3153,7 @@ function waylineApp() {
       this._workflowResizeTimer = null;
       if (this._workflowResizeObserver) this._workflowResizeObserver.disconnect();
       this._workflowResizeObserver = null;
-      if (this._workflowCameraElement && this._workflowCameraListener) {
-        this._workflowCameraElement.removeEventListener('pointerdown',this._workflowCameraListener);
-        this._workflowCameraElement.removeEventListener('wheel',this._workflowCameraListener);
-      }
-      this._workflowCameraElement = null;
-      this._workflowCameraListener = null;
+      this._workflowViewportSize = null;
       if (this.workflowCy) this.workflowCy.destroy();
       this.workflowCy = null;
       this.workflowTopologyChanged = false;
