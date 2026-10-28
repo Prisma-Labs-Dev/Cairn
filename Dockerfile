@@ -1,11 +1,13 @@
-FROM ghcr.io/astral-sh/uv:python3.13-trixie
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
 
-COPY ./cairn/pyproject.toml /cairn/pyproject.toml
-COPY ./cairn/uv.lock /cairn/uv.lock
-WORKDIR /cairn
-RUN uv sync --frozen --no-install-project -i https://mirrors.aliyun.com/pypi/simple/
+WORKDIR /app
+COPY wayline/pyproject.toml wayline/uv.lock wayline/.python-version /app/wayline/
+RUN uv sync --python 3.13 --frozen --no-dev --no-install-project --project /app/wayline
+COPY wayline/src /app/wayline/src
+RUN uv sync --python 3.13 --frozen --no-dev --no-editable --project /app/wayline
 
-COPY ./cairn /cairn
-RUN uv sync --frozen -i https://mirrors.aliyun.com/pypi/simple/
-
-ENV TZ=Asia/Shanghai
+ENV PATH="/app/wayline/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    TZ=UTC
+EXPOSE 8000
+CMD ["wayline", "serve", "--host", "0.0.0.0", "--no-access-log"]

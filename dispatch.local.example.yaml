@@ -4,8 +4,8 @@
 #
 # Usage:
 #   cp dispatch.local.example.yaml dispatch.yaml
-#   uv run --project cairn cairn serve                       # in one shell
-#   uv run --project cairn cairn dispatch --config dispatch.yaml
+#   uv run --project wayline wayline serve                       # in one shell
+#   uv run --project wayline wayline dispatch --config dispatch.yaml
 #
 # Notes:
 # - Do NOT run the dispatcher via docker-compose in local mode: it must run on the host
@@ -38,7 +38,7 @@ tasks:
 # Optional. If omitted: workspace_root defaults to the dispatcher's current directory,
 # completed_action defaults to keep. Each project gets an isolated <workspace_root>/<project_id>/.
 local:
-  # workspace_root: "/data/cairn-runs"
+  # workspace_root: "/data/wayline-runs"
   completed_action: keep       # keep | remove
 
 # Extra environment variables for every local worker process. These are merged over the

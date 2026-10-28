@@ -59,7 +59,9 @@ Separate host and native-driver setup recorded seven completed responses, 5,659 
 
 The per-attempt `evaluation.json` checks structured values and source citations. Report prose requires separate review. A wrong answer alone is not evidence of fabrication.
 
-## Receipts
+## Historical local receipts
+
+The tables and conclusions above are the portable receipt summary committed with the project. The following paths identify original operator-local evidence, not files distributed in this repository. They deliberately retain the Cairn name used at measurement time. A fresh clone cannot open these receipts or reproduce the historical model/account state. Raw sessions, authentication material and host diagnostics are not committed.
 
 - `needle-original`: [attempt receipt](/Users/vabole/.cache/cairn/pi-luna-matrix-20261027/attempts/needle-original/attempt.json), [captured artifacts](/Users/vabole/.cache/cairn/pi-luna-matrix-20261027/attempts/needle-original/captured), [actual frozen manifest](/Users/vabole/.cache/cairn/pi-luna-matrix-20261027/attempts/needle-original/frozen-manifest.json).
 - `needle-standalone`: [attempt receipt](/Users/vabole/.cache/cairn/pi-luna-matrix-20261027/attempts/needle-standalone/attempt.json), no artifacts created, [actual frozen manifest](/Users/vabole/.cache/cairn/pi-luna-matrix-20261027/attempts/needle-standalone/frozen-manifest.json).

@@ -245,7 +245,7 @@ def record_event(root, call_id, event, state):
 
 
 def worker(argv):
-    root = Path(os.environ["CAIRN_BENCH_STATE"])
+    root = Path(os.environ["WAYLINE_BENCH_STATE"])
     config = json.loads((root / "config.json").read_text())
     if "--list-models" in argv or "--version" in argv or "--help" in argv:
         os.execv(config["real_pi"], [config["real_pi"], *argv])
@@ -264,8 +264,8 @@ def worker(argv):
     verify_settings(Path.cwd())
     (Path.cwd() / "cairn-sessions").mkdir(exist_ok=True)
     metadata = str(root / "raw" / (call_id + ".metadata.jsonl"))
-    child_env = {**os.environ, "CAIRN_BENCH_CLI_ID": call_id, "CAIRN_BENCH_PYTHON": sys.executable,
-                 "CAIRN_BENCH_METADATA": metadata, "CAIRN_BENCH_ALLOWED_ORIGINS": json.dumps(config.get("allowed_fixture_origins", [])), "NODE_OPTIONS": "--import " + str(root / "pi_observer.ts")}
+    child_env = {**os.environ, "WAYLINE_BENCH_CLI_ID": call_id, "WAYLINE_BENCH_PYTHON": sys.executable,
+                 "WAYLINE_BENCH_METADATA": metadata, "WAYLINE_BENCH_ALLOWED_ORIGINS": json.dumps(config.get("allowed_fixture_origins", [])), "NODE_OPTIONS": "--import " + str(root / "pi_observer.ts")}
 
     status = "start_failed"
     try:
@@ -330,7 +330,7 @@ def supervise(root, url, command, cwd=None):
     with database(root) as db:
         db.execute("INSERT OR REPLACE INTO control VALUES('started',?)", (str(start),))
     reason, status_errors = None, []
-    env = {**os.environ, "CAIRN_BENCH_STATE": str(root), "CAIRN_BENCH_TRANSPORT": str(Path(__file__).resolve())}
+    env = {**os.environ, "WAYLINE_BENCH_STATE": str(root), "WAYLINE_BENCH_TRANSPORT": str(Path(__file__).resolve())}
     with open(root / "dispatcher.log", "wb") as log:
         process = subprocess.Popen(command, cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         try:
@@ -411,7 +411,7 @@ def main():
         command = args.command[1:] if args.command[:1] == ["--"] else args.command
         print(json.dumps(supervise(args.root, args.target_url, command, args.cwd), indent=2))
     elif args.action == "reserve":
-        reservation = reserve(Path(os.environ["CAIRN_BENCH_STATE"]), os.environ["CAIRN_BENCH_CLI_ID"])
+        reservation = reserve(Path(os.environ["WAYLINE_BENCH_STATE"]), os.environ["WAYLINE_BENCH_CLI_ID"])
         if reservation is None:
             sys.exit(125)
         print(reservation)

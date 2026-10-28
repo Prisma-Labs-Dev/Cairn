@@ -10,9 +10,9 @@ import subprocess
 
 import yaml
 
-from cairn.dispatcher.config import DispatchConfig
-from cairn.dispatcher.workers.adapters.codex import CodexDriver
-from cairn.dispatcher.workers.adapters.pi import LOCAL_MODEL_CHECK_SCRIPT, PiDriver
+from wayline.dispatcher.config import DispatchConfig
+from wayline.dispatcher.workers.adapters.codex import CodexDriver
+from wayline.dispatcher.workers.adapters.pi import LOCAL_MODEL_CHECK_SCRIPT, PiDriver
 
 
 def verify(config: DispatchConfig) -> dict:

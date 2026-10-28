@@ -6,9 +6,9 @@ compares it with upstream `8e7e0ea`. Workflow and artifact behavior is documente
 
 ## Responsibilities
 
-The dispatcher executes Cairn projects. It manages execution environments, assigns explicit
+The dispatcher executes Wayline projects. It manages execution environments, assigns explicit
 tasks to agents, and writes validated results to the server. Agents receive prompts and return
-structured results. They do not claim intents, send heartbeats, or write to the Cairn API.
+structured results. They do not claim intents, send heartbeats, or write to the Wayline API.
 With independent verification enabled, the dispatcher also starts a fresh completion reviewer
 using the existing reason-capable worker pool.
 
@@ -18,7 +18,7 @@ A worker represents a unit of model concurrency quota. Splitting one API key int
 workers does not create independent quota.
 
 ```text
-Cairn server
+Wayline server
   Projects / Facts / Intents / Hints / reason leases
           ^
           | structured scheduling API + graph export
@@ -346,9 +346,9 @@ and an omitted effort keeps the existing `high` setting. Both execute and resume
 same configured overrides. The selected CLI and provider must support the requested model
 and effort; configuration acceptance does not prove provider availability.
 
-Pi container execution writes an isolated provider configuration under `/tmp/cairn-pi`, then
+Pi container execution writes an isolated provider configuration under `/tmp/wayline-pi`, then
 selects its configured model and JSON mode. `PI_MODEL_CONTEXT_WINDOW` is an optional positive
-integer. Worker `model` overrides `PI_MODEL` in containers; their injected provider remains `cairn`.
+integer. Worker `model` overrides `PI_MODEL` in containers; their injected provider remains `wayline`.
 Local Pi reuses host credentials and defaults unless `provider`, `model`, or `reasoning_effort`
 is explicit. An exact offline catalog check rejects unavailable or ambiguous local models before
 model execution. Thinking uses Pi `--thinking`. Both modes disable external extensions, skills,
@@ -381,7 +381,7 @@ probabilities are between zero and one and must sum exactly to one. Unsupported 
 outcomes are rejected. A simulated delay beyond the outer task timeout exercises the timeout
 path. Reason does not sample no-op when no open exploration remains. Optional fixture rules
 can force outcomes based on fact-count thresholds or whether open intents are empty;
-[the configuration model](../../cairn/src/cairn/dispatcher/config.py) defines their exact keys.
+[the configuration model](../../wayline/src/wayline/dispatcher/config.py) defines their exact keys.
 
 ## Usage capture and durable dispatcher state
 
@@ -396,7 +396,7 @@ resume accounting uses durable session baselines; unsupported or missing baselin
 coverage. The [Token usage guide](../usage.md) defines the cache accounting, CLI format limits,
 pagination, reporter health, and retry semantics. The dashboard is not a provider invoice.
 
-The default outbox is `~/.local/share/cairn/usage-outbox.db`. Use `CAIRN_USAGE_OUTBOX` for an
+The default outbox is `~/.local/share/wayline/usage-outbox.db`. Use `WAYLINE_USAGE_OUTBOX` for an
 alternate durable path. Every dispatcher requires a separate resolved path on a filesystem
 supporting advisory locks. Ownership is checked before startup health probes and worker
 execution. A competing process fails configuration rather than recovering another live
@@ -448,7 +448,7 @@ processes also inherit the dispatcher's host environment.
 | `workers[].priority` | Required nonnegative selection priority; lower wins |
 | `workers[].env` | Optional string environment map; container drivers require the keys listed above |
 | `workers[].model` | Optional nonblank explicit Codex or Pi model |
-| `workers[].provider` | Optional explicit Pi provider; containers accept only the injected `cairn` provider |
+| `workers[].provider` | Optional explicit Pi provider; containers accept only the injected `wayline` provider |
 | `workers[].reasoning_effort` | Optional explicit Codex or Pi thinking effort |
 
 Loading validates the configuration, unique worker names, task types, environment
@@ -496,11 +496,11 @@ do not change claim authority. See [Pi sessions](../pi-sessions.md) for capture 
 
 The operational prompts are already English and remain the authoritative prompt text:
 
-- [Bootstrap](../../cairn/src/cairn/dispatcher/prompts/default/bootstrap.md)
-- [Bootstrap conclude](../../cairn/src/cairn/dispatcher/prompts/default/bootstrap_conclude.md)
-- [Reason](../../cairn/src/cairn/dispatcher/prompts/default/reason.md)
-- [Explore](../../cairn/src/cairn/dispatcher/prompts/default/explore.md)
-- [Explore conclude](../../cairn/src/cairn/dispatcher/prompts/default/explore_conclude.md)
+- [Bootstrap](../../wayline/src/wayline/dispatcher/prompts/default/bootstrap.md)
+- [Bootstrap conclude](../../wayline/src/wayline/dispatcher/prompts/default/bootstrap_conclude.md)
+- [Reason](../../wayline/src/wayline/dispatcher/prompts/default/reason.md)
+- [Explore](../../wayline/src/wayline/dispatcher/prompts/default/explore.md)
+- [Explore conclude](../../wayline/src/wayline/dispatcher/prompts/default/explore_conclude.md)
 
 The old embedded copies of prompts and example configuration have been replaced by these
 links so the specification does not describe a different task contract from the files loaded

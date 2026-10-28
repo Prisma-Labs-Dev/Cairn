@@ -1,11 +1,16 @@
-# Small Cairn comparison suite
+# Small original-engine and Wayline comparison suite
+
+This is an optional historical comparison harness, not an installation or provider-readiness
+check. The matrix deliberately checks out frozen Cairn-named revisions. The current outer
+CLI uses Wayline; historical checkout commands and source names remain part of the experiment.
+Use [Installation](installation.md) for a fresh runtime.
 
 Status: nine initial comparison pilots finished. Six passed the strict checker; one
 completed with missing report source links; two workflow attempts reached the token
 limit. See [measured results and limits](benchmark-pi-luna-results-2026-10-27.md). Sol designs and checks the tests; **Luna executes every benchmark
 worker call**, including bootstrap, planning, reason, exploration, conclusion and retries.
 
-The suite compares the original Cairn engine at `8e7e0ea`, this fork as a standalone
+The suite compares the original Cairn engine at `8e7e0ea`, Wayline as a standalone
 project, and this fork as a workflow. Each receives identical fixture bytes, starting
 context and final goal. The workflow adds discovery, independent generated verification
 goals, and a synthesis stage. The original and standalone runs may also plan parallel
@@ -35,12 +40,12 @@ From the repository root:
 
 ```sh
 python3 -m unittest discover -s benchmarks -p 'test_*.py' -v
-uv run --project cairn --group dev pytest cairn/tests/test_benchmark_setup.py cairn/tests/test_codex_worker_model.py
+uv run --project wayline --group dev pytest wayline/tests/test_benchmark_setup.py wayline/tests/test_codex_worker_model.py
 python3 benchmarks/bench.py prepare --case research --seed pilot-1 \
-  --workspace /tmp/cairn-pilot-research-worker \
-  --private /tmp/cairn-pilot-research-evaluator
+  --workspace /tmp/wayline-pilot-research-worker \
+  --private /tmp/wayline-pilot-research-evaluator
 python3 benchmarks/bench.py serve \
-  --public /tmp/cairn-pilot-research-worker/input/public --port 8765
+  --public /tmp/wayline-pilot-research-worker/input/public --port 8765
 ```
 
 Run `prepare` separately for `needle` and `inventory` with fresh directories. Reuse the
@@ -51,10 +56,10 @@ Needle needs no HTTP server. For inventory use a separate command instead of `se
 ```sh
 python3 benchmarks/bench.py prepare --case inventory --seed pilot-1 \
   --base-url http://127.0.0.1:8765 \
-  --workspace /tmp/cairn-pilot-inventory-worker \
-  --private /tmp/cairn-pilot-inventory-evaluator
+  --workspace /tmp/wayline-pilot-inventory-worker \
+  --private /tmp/wayline-pilot-inventory-evaluator
 python3 benchmarks/bench.py serve-inventory \
-  --lab-config /tmp/cairn-pilot-inventory-evaluator/lab.json
+  --lab-config /tmp/wayline-pilot-inventory-evaluator/lab.json
 ```
 
 Here the base port allocates a block; candidates are ports 8766 through 8769. The worker
@@ -72,7 +77,7 @@ answer to a worker. Run evaluation after workers stop and withhold its results u
 attempt ends. There is no evaluation feedback loop for workers.
 
 Disjoint paths prevent accidental copying; they are not an operating-system security
-boundary. Cairn's local workers run with host permissions. For a protected evaluation,
+boundary. Wayline's local workers run with host permissions. For a protected evaluation,
 use a dedicated isolated machine or sandbox with only the worker bundle mounted and the
 loopback fixture available inside it. Keep the evaluator on the outside. Never describe
 a same-user local run as a protected hidden-answer evaluation. The supplied local config
@@ -119,7 +124,7 @@ reusing each other's output paths.
 
 ## Pin Luna before any pilot
 
-Use `benchmarks/dispatch.pi-luna.local.yaml` for native Pi with the existing
+Use `benchmarks/dispatch.pi-luna.local.yaml` for native Pi with your own
 `openai-codex` OAuth subscription, exact `gpt-6-luna`, and low effort. API keys are
 not used. Run `preflight.py` after replacing the workspace placeholder. Offline
 catalog routing and live access are separate checks. Stop if the exact model is
@@ -159,7 +164,7 @@ Prepare and review without model calls:
 
 ```sh
 python3 -m unittest discover -s benchmarks -p 'test_*.py' -v
-python3 benchmarks/run_matrix.py prepare --root /tmp/cairn-pi-matrix \
+python3 benchmarks/run_matrix.py prepare --root /tmp/wayline-pi-matrix \
   --real-pi /absolute/path/to/pi
 ```
 
@@ -169,8 +174,8 @@ source diffs, common prompt bytes, worker bundles, instrumentation and copied
 observers. Run each of the nine attempt IDs once after review:
 
 ```sh
-uv run --project cairn python benchmarks/run_matrix.py run \
-  --root /tmp/cairn-pi-matrix --attempt needle-original --reviewed
+uv run --project wayline python benchmarks/run_matrix.py run \
+  --root /tmp/wayline-pi-matrix --attempt needle-original --reviewed
 ```
 
 Attempt IDs are `<needle|research|inventory>-<original|standalone|workflow>`.
@@ -209,8 +214,8 @@ including failures. Do not tune prompts for a losing mode after seeing its answe
    in-flight calls and count it. Stop on the first limit
    or normal completion. A timeout is a result, not permission for an uncounted rerun.
 4. Start only the API server. Create the original/standalone project from `standalone.json`
-   or the fork workflow from `workflow.json`. The CLI supports `cairn project create
-   --file ...` and `cairn workflow create --file ...`; the original API accepts
+   or the fork workflow from `workflow.json`. The CLI supports `wayline project create
+   --file ...` and `wayline workflow create --file ...`; the original API accepts
    `POST /projects` with the same title, origin and goal fields.
 5. Before starting the dispatcher, copy only the worker bundle into its runtime directory
    at `<workspace_root>/<project_id>` or `<workspace_root>/<workflow_id>`. All workflow
@@ -230,15 +235,15 @@ including failures. Do not tune prompts for a losing mode after seeing its answe
 
 ```sh
 python3 benchmarks/bench.py evaluate \
-  --workspace /tmp/cairn-pilot-research-captured \
-  --private /tmp/cairn-pilot-research-evaluator
+  --workspace /tmp/wayline-pilot-research-captured \
+  --private /tmp/wayline-pilot-research-evaluator
 ```
 
 The checker rejects wrong values, unknown fields, invented or missing source quotes,
 missing Markdown citations and changed public input fixtures. Candidate/service list ordering
 does not matter. It checks the structured answer, not the truth of arbitrary report
 prose. A human must also check whether the report accurately describes the evidence and
-uncertainty. Cairn's own completed status and artifact presence do not replace either
+uncertainty. Wayline's own completed status and artifact presence do not replace either
 check.
 
 ## Account for all work
@@ -259,7 +264,7 @@ shape. Values below illustrate the schema and are not benchmark measurements:
 ```
 
 ```sh
-python3 benchmarks/bench.py summarize --ledger /tmp/cairn-pilot-calls.jsonl
+python3 benchmarks/bench.py summarize --ledger /tmp/wayline-pilot-calls.jsonl
 ```
 
 `summarize` rejects missing usage, a different model/effort, duplicate calls and an empty

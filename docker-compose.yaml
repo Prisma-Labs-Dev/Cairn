@@ -1,14 +1,13 @@
 services:
-  cairn-server:
+  wayline-server:
     build:
       context: .
       dockerfile: Dockerfile
-    image: cairn-app
-    container_name: cairn-server
+    image: wayline-app:local
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
-      - ./datas/cairn/:/root/.local/share/cairn/
+      - ./datas/wayline/:/root/.local/share/wayline/
     healthcheck:
       test:
         - "CMD"
@@ -20,19 +19,19 @@ services:
       retries: 12
       start_period: 3s
     restart: unless-stopped
-    command: ["uv", "run", "cairn", "serve", "--host", "0.0.0.0", "--no-access-log"]
-  cairn-dispatcher:
+  # Optional Docker-worker route. Host-local Pi dispatch runs on the host instead.
+  wayline-dispatcher:
+    profiles: [container-dispatcher]
     build:
       context: .
       dockerfile: Dockerfile
-    image: cairn-app
-    container_name: cairn-dispatcher
+    image: wayline-app:local
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./dispatch.yaml:/cairn/dispatch.yaml
-      - ./datas/dispatcher/:/root/.local/share/cairn/
+      - ./dispatch.yaml:/app/dispatch.yaml:ro
+      - ./datas/dispatcher/:/root/.local/share/wayline/
     depends_on:
-      cairn-server:
+      wayline-server:
         condition: service_healthy
     restart: unless-stopped
-    command: ["uv", "run", "cairn", "dispatch", "--config", "dispatch.yaml"]
+    command: ["wayline", "dispatch", "--config", "/app/dispatch.yaml"]

@@ -44,7 +44,7 @@ With no connected dispatcher, settings remain saved for the next one that connec
 
 Increases can admit additional work on the next tick, including enlarging the execution
 pool while earlier tasks continue. Reductions do not cancel or interrupt running agents.
-If existing work exceeds a new limit, Cairn waits for it to drain before submitting more.
+If existing work exceeds a new limit, Wayline waits for it to drain before submitting more.
 When the project limit decreases, only the allowed subset of projects keeps admission;
 the others wait rather than continuing to receive new work under the old limit.
 

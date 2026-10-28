@@ -1,5 +1,7 @@
 # UI review of retained Luna runs, 2026-10-28
 
+This is a historical verification record from the Cairn-named build. Local evidence paths below are not included in a fresh clone.
+
 This review used SQLite backups and copied Pi viewer files from the retained
 `~/.cache/cairn/pi-luna-matrix-20261027/attempts/` runs. No model calls were made.
 Original benchmark databases, transcripts and worker results were not changed.
@@ -42,7 +44,7 @@ repeated end markers, paging back to latest, stale async responses, missing-usag
 navigation and counts, and desktop width retention. Run it with:
 
 ```sh
-uv run --project cairn --group dev pytest cairn/tests/test_agent_session_ui.py
+uv run --project wayline --group dev pytest wayline/tests/test_agent_session_ui.py
 ```
 
 Standalone output files are not collected server artifacts. Their presence in a saved

@@ -1,10 +1,8 @@
-# Cairn server API endpoint.
-server: "http://cairn-server:8000"
-
-# Shared environment variables merged into every worker.
-common_env:
-  TSEC_SERVER_HOST: "<SERVER_HOST>:8000"
-  TSEC_AGENT_TOKEN: "xxx"
+# Optional container execution example. Build the worker from this checkout first:
+# docker build -t wayline-worker:local container
+# The primary host-local Pi path uses dispatch.local.example.yaml.
+# Wayline server API endpoint.
+server: "http://wayline-server:8000"
 
 runtime:
   # Scheduler tick interval in seconds.
@@ -20,7 +18,7 @@ runtime:
   # "startup_and_task" checks at dispatcher startup and before every task.
   # "startup_only" checks only at startup. "disabled" skips automatic worker checks.
   worker_healthcheck: "startup_only"
-  # Prompt set loaded from cairn/src/cairn/dispatcher/prompts/.
+  # Prompt set loaded from wayline/src/wayline/dispatcher/prompts/.
   prompt_group: "default"
 
 tasks:
@@ -42,7 +40,7 @@ tasks:
 
 container:
   # Base worker container. The dispatcher execs agent commands inside one container per project.
-  image: "ghcr.io/oritera/cairn-worker-container:latest"
+  image: "wayline-worker:local"
   network_mode: "host"
   # "stop" keeps finished containers for inspection; "remove" is cleaner but loses post-run state.
   completed_action: "stop"
@@ -66,5 +64,5 @@ workers:
       PI_API_KEY: "<provider-api-key>"
       PI_PROVIDER_API: "openai-completions"
       # PI_MODEL_CONTEXT_WINDOW: "<positive-integer>"
-    # model overrides PI_MODEL; provider must remain omitted or "cairn" in containers.
+    # model overrides PI_MODEL; provider must remain omitted or "wayline" in containers.
     # reasoning_effort: "high"

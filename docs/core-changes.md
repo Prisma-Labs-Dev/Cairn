@@ -1,6 +1,6 @@
 # Changes to the original Cairn core
 
-This is the single record of behavioral changes to the original Cairn engine in this fork.
+This is the single record of behavioral changes to the original Cairn engine in Wayline.
 The comparison baseline is `oritera/Cairn` at `8e7e0ea`. It includes changes merged since that
 base, including runtime controls, CLI usage capture, and optional independent verification.
 The translated specifications describe current behavior: [server protocol](specs/server-protocol.md) and
@@ -13,6 +13,34 @@ and runtime API details belong in [Runtime controls](runtime-controls.md).
 [Token usage](usage.md) and [Independent verification](verification.md) describe their current
 operating contracts. [Workflow management](workflow-management.md) covers recoverable workflow
 Trash; it does not change the original standalone project deletion endpoint.
+
+## Deployment identity and generic worker image
+
+Wayline uses the `wayline` Python project, module, and CLI, `WAYLINE_*` runtime
+environment variables, and Wayline-named default data, outbox, session and viewer paths.
+`WAYLINE_DB_PATH` selects the server database unless `serve --db-path` overrides it.
+`init` writes isolated runtime configuration without credentials; offline `doctor` checks
+readiness separately from a live authenticated request.
+The deployment rename is a clean break. It does not migrate old Cairn runtime data or
+read old `CAIRN_*` variables automatically. See [Installation](installation.md) before
+selecting an old database or moving runtime state. Historical benchmark names, commit
+hashes, and local evidence paths retain their original spelling.
+
+The worker image is a generic Pi execution environment built from this repository.
+The upstream Kali/TSEC image, penetration-testing tool bundle, and its implicit host
+services are no longer the default installation. Workflows that need additional tools
+must provide their own reviewed image or local environment. This changes the deployment
+environment; the fact/intent protocol and standalone goal contracts remain available.
+
+The supported Python range is 3.12 through 3.14, with 3.13 pinned for the default environment.
+The locked watchfiles/PyO3 extension failed on Python 3.15, so that version is excluded.
+Local mock workers use the installed environment's Python interpreter instead of depending
+on an activated shell's `python3`; container mock workers retain their container interpreter.
+[Init/doctor tests](../wayline/tests/test_doctor.py) cover offline setup and readiness;
+[the wheel smoke](../scripts/check-install.py) checks installation outside the checkout.
+
+Unused Cola layout assets were removed from the packaged dashboard. There were no loaders,
+options or repository consumers. Dagre, Klay and ELK layouts remain available.
 
 ## Outcome-preserving worker guidance
 
@@ -30,9 +58,9 @@ API. Other projects retain their ordinary intent/completion lifecycle. Full choi
 selection, fallback, manual recovery, and history contracts belong in
 [Staged workflows](workflows.md#choose-one-approach-with-ranked-fallback).
 
-Proof is in [workflow choice tests](../cairn/tests/test_workflow_choices.py), including
+Proof is in [workflow choice tests](../wayline/tests/test_workflow_choices.py), including
 local deterministic bootstrap and reason execution, and
-[cancellation-drain tests](../cairn/tests/test_choice_runtime_drain.py). These fixtures do
+[cancellation-drain tests](../wayline/tests/test_choice_runtime_drain.py). These fixtures do
 not call live models or establish real-world ingredient availability.
 
 ## Project creation and metadata
@@ -61,8 +89,8 @@ It validates with the API models before HTTP, emits JSON results and errors, sup
 schema and dry-run commands, and limits source input to 1 MiB. It does not change worker
 selection, start a model itself, or require provider credentials for creation.
 
-Proof is in [creation API tests](../cairn/tests/test_simple_creation.py) and
-[CLI tests](../cairn/tests/test_creation_cli.py), including real local HTTP creation,
+Proof is in [creation API tests](../wayline/tests/test_simple_creation.py) and
+[CLI tests](../wayline/tests/test_creation_cli.py), including real local HTTP creation,
 normalization, offline validation, safe transport errors, and metadata refinement.
 
 ## Live runtime policy and project admission
@@ -91,8 +119,8 @@ cross-process global quota. Admissions, counters, checkpoints, and cleanup remai
 one scheduling dispatcher per server remains the predictable deployment. Stale reports are
 historical observations, not proof of a currently running process.
 
-Proof is in [runtime tests](../cairn/tests/test_runtime_controls.py) and the existing
-[scheduler tests](../cairn/tests/test_scheduler_logic.py). The runtime tests cover persistence,
+Proof is in [runtime tests](../wayline/tests/test_runtime_controls.py) and the existing
+[scheduler tests](../wayline/tests/test_scheduler_logic.py). The runtime tests cover persistence,
 reset, strict override validation, freshness, secret-free snapshots, per-process scope,
 raising a real executor while tasks are running, and reducing project admissions without
 cancellation. Exact endpoints and bounds are in [Runtime controls](runtime-controls.md).
@@ -111,8 +139,8 @@ This provides reproducible model selection for tasks such as a model-specific be
 It does not make every model compatible with every CLI or provider; the selected backend
 must support the requested model and effort.
 
-Proof is in [Codex routing tests](../cairn/tests/test_codex_worker_model.py) and
-[configuration tests](../cairn/tests/test_config_and_adapters.py). These inspect execute/resume arguments
+Proof is in [Codex routing tests](../wayline/tests/test_codex_worker_model.py) and
+[configuration tests](../wayline/tests/test_config_and_adapters.py). These inspect execute/resume arguments
 and health-check model selection without calling a provider.
 
 ## Structured CLI output and automatic usage capture
@@ -146,8 +174,8 @@ Retries retain their UUID, identical replay is idempotent, and conflicting or pe
 rejected reports are retained locally for inspection. Replay is bounded to three events per
 pass. Reporting failure does not replace or change an agent's task result.
 
-This adds durable dispatcher state at `~/.local/share/cairn/usage-outbox.db`, overridable with
-`CAIRN_USAGE_OUTBOX`. The Compose dispatcher now mounts its own durable data directory.
+This adds durable dispatcher state at `~/.local/share/wayline/usage-outbox.db`, overridable with
+`WAYLINE_USAGE_OUTBOX`. The Compose dispatcher now mounts its own durable data directory.
 Each scheduling process requires a separate outbox path. An exclusive operating-system
 advisory lock rejects another process using the same resolved path before startup probes
 or worker execution. Threads reuse the owner's lock; cold WAL and schema initialization are
@@ -156,8 +184,8 @@ journal-mode switch. Exit or crash releases process ownership. Do not
 remove the lock sidecar while a dispatcher is running. A hard crash cannot recover token
 counters that were never persisted, and disk failure can still prevent accounting.
 
-Proof is in [usage tests](../cairn/tests/test_usage.py) and
-[startup ownership tests](../cairn/tests/test_usage_startup_guard.py), including synthetic
+Proof is in [usage tests](../wayline/tests/test_usage.py) and
+[startup ownership tests](../wayline/tests/test_usage_startup_guard.py), including synthetic
 CLI streams, real harmless subprocesses, resume deltas, unknown-versus-zero fields,
 multimodel readings, duplicate replay, and separate-process lock recovery. See
 [Token usage](usage.md) for exact field meanings, supported formats, API, and limitations.
@@ -165,7 +193,7 @@ The usage summary also compares known Pi session invocation IDs with matching le
 under the same date/project filters. It exposes a missing-record count and at most 25
 metadata links without reading transcripts or inventing token/model values. Later usage
 replay clears the exact gap; existing totals remain sums of reported counters. Regression
-coverage is in [session usage coverage tests](../cairn/tests/test_usage_session_coverage.py).
+coverage is in [session usage coverage tests](../wayline/tests/test_usage_session_coverage.py).
 
 The [initial live Luna pilots](benchmark-pi-luna-results-2026-10-27.md) add Pi/server usage
 evidence: seven attempts fully reconcile and two capped attempts retain incomplete accounting.
@@ -207,8 +235,8 @@ guarantee. The reviewer must still inspect evidence and relevant tests; a nonemp
 field alone does not prove the result. Reviews are paginated summaries by default, with full
 frozen context and immutable artifact downloads available on opening a claim.
 
-Proof is in [verification API tests](../cairn/tests/test_verification.py) and
-[review runtime tests](../cairn/tests/test_review_runtime.py), covering default behavior,
+Proof is in [verification API tests](../wayline/tests/test_verification.py) and
+[review runtime tests](../wayline/tests/test_review_runtime.py), covering default behavior,
 pending completion, fresh execution, self-review guards, leases, immutable evidence,
 approval/rejection, concurrency, and bounded recovery. The [verification guide](verification.md)
 has the current request fields and operational limits. Fabrication cases in evaluator tests
@@ -233,8 +261,8 @@ standalone exploration graph, make negative findings failures, or enable verific
 default. Existing stages without contracts keep their ordinary completion format.
 
 The conditional-stage and collection lifecycle is a workflow extension documented in
-[Staged workflows](workflows.md) and [RFC 0001](rfc/0001-conditional-workflows.md). Proof is
-in [conditional workflow tests](../cairn/tests/test_workflow_conditions.py), including actual
+[Staged workflows](workflows.md) and [workflow result contract](specs/workflow-results.md). Proof is
+in [conditional workflow tests](../wayline/tests/test_workflow_conditions.py), including actual
 dispatcher completion transport, review gating, strict result validation, restart, and
 bounded correction with deterministic workers. These checks do not call a live model.
 
@@ -246,7 +274,7 @@ allows the new `204` runtime heartbeat response to succeed even if a server or p
 that content type. Nonempty JSON responses still use the existing decoding path.
 
 Proof is the empty-204 regression in
-[runtime client tests](../cairn/tests/test_runtime_controls.py).
+[runtime client tests](../wayline/tests/test_runtime_controls.py).
 
 ## Managed Pi sessions and live activity
 
@@ -254,7 +282,7 @@ Before, Pi selected JSON mode and a temporary worker session directory; the disp
 learned the session ID after the process ended. Task stdout was buffered for final parsing,
 and graph claims were not a durable per-invocation activity history. The viewer change makes
 Pi the primary worker in the shipped examples and assigns an explicit managed source path
-`cairn-sessions/<UUID>.jsonl` before execution. Conclude resumes that exact file. The original
+`wayline-sessions/<UUID>.jsonl` before execution. Conclude resumes that exact file. The original
 Pi header ID remains separate and unchanged.
 
 Both process backends now notify an optional observer while draining stdout, preserving
@@ -284,11 +312,11 @@ source or disk loss before capture remains unrecoverable. Process completion is 
 server delivery: explicit raw/event byte targets remain pending until acknowledged, and selected
 SSE streams keep receiving late replay and paged final events after the process ends.
 
-Proof is in [runtime tests](../cairn/tests/test_pi_session_runtime.py),
-[session API tests](../cairn/tests/test_agent_sessions.py),
-[capture tests](../cairn/tests/test_session_capture.py),
-[gateway tests](../cairn/tests/test_pi_viewer_gateway.py), and
-[UI lifecycle/ordering tests](../cairn/tests/test_agent_session_ui.py). The pinned Go viewer was
+Proof is in [runtime tests](../wayline/tests/test_pi_session_runtime.py),
+[session API tests](../wayline/tests/test_agent_sessions.py),
+[capture tests](../wayline/tests/test_session_capture.py),
+[gateway tests](../wayline/tests/test_pi_viewer_gateway.py), and
+[UI lifecycle/ordering tests](../wayline/tests/test_agent_session_ui.py). The pinned Go viewer was
 built and exercised against explicitly labeled fixtures, including a file append producing
 SSE reload. Browser checks covered live appended events, ended state, phone layout, and the
 same-origin read-only transcript. No paid model execution or live Docker/provider session is

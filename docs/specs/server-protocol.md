@@ -1,4 +1,4 @@
-# Cairn collaborative exploration protocol
+# Wayline collaborative exploration protocol
 
 This document describes the current project graph protocol. The [dispatcher specification](dispatcher-design.md)
 describes its bundled consumer. The [core change record](../core-changes.md) compares this fork
@@ -8,7 +8,7 @@ server's `/openapi.json` provides the exact request and response schemas.
 
 ## Model and design
 
-Cairn models goal-directed exploration as a directed acyclic graph. Consumers start from
+Wayline models goal-directed exploration as a directed acyclic graph. Consumers start from
 known facts, explore directions, and append new facts until some findings together satisfy
 the goal. Its name comes from the stones hikers stack as route markers. Each fact records
 progress that another consumer can build on.

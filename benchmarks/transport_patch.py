@@ -23,7 +23,7 @@ LOCAL = '''    def _local_argv(self, worker: WorkerConfig, prompt: str, session:
         if session:
             argv.extend(["--session", session])
         argv.extend(["-p", prompt])
-        return [sys.executable, os.environ["CAIRN_BENCH_TRANSPORT"], "worker", "--", *argv]
+        return [sys.executable, os.environ["WAYLINE_BENCH_TRANSPORT"], "worker", "--", *argv]
 
 '''
 

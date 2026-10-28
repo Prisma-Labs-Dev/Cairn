@@ -19,12 +19,12 @@ def run(*arguments, cwd):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--output', type=Path, default=Path.home()/'.cache/cairn/pi-web'/PIN/'pi-web')
+    parser.add_argument('--output', type=Path, default=Path.home()/'.cache/wayline/pi-web'/PIN/'pi-web')
     args = parser.parse_args()
     for binary in ('git', 'npm', 'go'):
         if shutil.which(binary) is None:
             parser.error(f'{binary} must be installed before building the viewer')
-    with tempfile.TemporaryDirectory(prefix='cairn-pi-web-build-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='wayline-pi-web-build-') as temporary:
         source = Path(temporary)
         run('git', 'init', '-q', cwd=source)
         run('git', 'remote', 'add', 'origin', REPOSITORY, cwd=source)
@@ -36,21 +36,21 @@ def main():
         run('git', 'apply', '--check', str(ROOT/'vendor/pi-web/readonly.patch'), cwd=source)
         run('git', 'apply', str(ROOT/'vendor/pi-web/readonly.patch'), cwd=source)
         # Install only the frontend lockfile. Root postinstall would configure
-        # autostart and must never run in Cairn's viewer build.
+        # autostart and must never run in Wayline's viewer build.
         run('npm', '--prefix', 'web', 'ci', '--ignore-scripts', cwd=source)
         run('npm', '--prefix', 'web', 'run', 'test', '--',
             'src/components/session/SessionInfoHeader.test.js',
             'src/components/session/ModelUsageModal.test.js', cwd=source)
         run('npm', '--prefix', 'web', 'run', 'build', cwd=source)
-        run('go', 'test', './internal/app', './internal/server', '-run', 'TestCairn', '-count=1', cwd=source)
+        run('go', 'test', './internal/app', './internal/server', '-run', 'TestWayline', '-count=1', cwd=source)
         args.output = args.output.expanduser().resolve()
         args.output.parent.mkdir(parents=True, exist_ok=True)
         temporary_binary = args.output.with_suffix('.building')
-        run('go', 'build', '-trimpath', '-ldflags', f'-X main.version=cairn-readonly-{PIN}', '-o', str(temporary_binary), './cmd/pi-web', cwd=source)
+        run('go', 'build', '-trimpath', '-ldflags', f'-X main.version=wayline-readonly-{PIN}', '-o', str(temporary_binary), './cmd/pi-web', cwd=source)
         temporary_binary.replace(args.output)
         print(f'Read-only viewer built: {args.output}')
         print(f'Pinned source: {REPOSITORY} at {PIN}')
-        print('Cairn starts this child on demand; no services or Tailscale configuration were changed.')
+        print('Wayline starts this child on demand; no services or Tailscale configuration were changed.')
 
 
 if __name__ == '__main__':
