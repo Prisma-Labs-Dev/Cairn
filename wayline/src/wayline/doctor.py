@@ -9,6 +9,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 
 import yaml
@@ -65,7 +66,7 @@ def readiness(config_path: Path | None = None):
         checks.append({'name': 'configuration', 'status': 'not_checked',
                        'action': 'Run wayline init --runtime-dir PATH, then wayline doctor --config PATH/dispatch.yaml.'})
     for kind in sorted(selected):
-        executable = {'pi': 'pi', 'mock': 'python3', 'codex': 'codex', 'claudecode': 'claude'}[kind]
+        executable = {'pi': 'pi', 'mock': sys.executable, 'codex': 'codex', 'claudecode': 'claude'}[kind]
         configured = [w for w in config.workers if w.type == kind] if config else [None]
         paths = [w.env.get('PATH') if w else None for w in configured]
         found = next((binary for path in paths if (binary := shutil.which(executable, path=path))), None)

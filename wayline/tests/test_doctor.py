@@ -43,7 +43,7 @@ def test_init_creates_valid_native_pi_config_and_quoted_instance_paths_only(tmp_
 
 def test_mock_readiness_does_not_require_pi_or_optional_viewer(tmp_path, monkeypatch):
     config = mock_config(tmp_path / 'runtime')
-    monkeypatch.setattr(doctor.shutil, 'which', lambda name, **kwargs: '/fixture/python3' if name == 'python3' else None)
+    monkeypatch.setattr(doctor.shutil, 'which', lambda name, **kwargs: doctor.sys.executable if name == doctor.sys.executable else None)
     monkeypatch.setattr(doctor, 'binary_path', lambda: tmp_path / 'viewer-not-built')
     report = doctor.readiness(config)
     assert report['status'] == 'offline_checks_passed'
@@ -139,3 +139,18 @@ def test_pi_available_only_on_configured_worker_path_is_checked(tmp_path, monkey
     report=doctor.readiness(path)
     assert report['status']=='offline_checks_passed'
     assert all(command[0][0]=='/configured/bin/pi' and command[1]['PATH']=='/configured/bin' for command in commands)
+
+
+def test_mock_doctor_passes_with_no_python3_on_host_or_worker_path(tmp_path, monkeypatch):
+    config_path = mock_config(tmp_path / 'runtime')
+    config = yaml.safe_load(config_path.read_text())
+    config['workers'][0]['env'] = {'PATH': ''}
+    config_path.write_text(yaml.safe_dump(config))
+    monkeypatch.setenv('PATH', '')
+    assert doctor.shutil.which('python3') is None
+    result = CliRunner().invoke(main, ['doctor', '--config', str(config_path)])
+    assert result.exit_code == 0, result.output
+    report = json.loads(result.output)
+    assert report['status'] == 'offline_checks_passed'
+    assert next(row for row in report['checks'] if row['name'] == 'mock_cli')['status'] == 'ok'
+    assert report['model_calls_made'] == 0

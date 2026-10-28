@@ -31,4 +31,4 @@ jobs:
       - name: Run regression suite
         run: uv run --python '${{ matrix.python }}' --frozen --project wayline --group dev pytest
       - name: Verify isolated wheel installation without models
-        run: python scripts/check-install.py --python '${{ matrix.python }}'
+        run: python scripts/check-install.py --python "$(command -v python)"
