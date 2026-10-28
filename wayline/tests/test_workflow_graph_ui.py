@@ -180,6 +180,45 @@ def test_polling_updates_and_new_branches_preserve_real_cytoscape_camera_and_pos
     """)
 
 
+
+def test_switching_workflows_preserves_destination_selection_without_updating_origin_graph(client):
+    first = detail(client, create(client, [stage("only_a")]))
+    second = detail(client, create(client, [stage("only_b")]))
+    cytoscape = Path(__file__).parents[1] / "src/wayline/server/static/vendor/cytoscape.min.js"
+    run_ui("const realCy=require(" + json.dumps(str(cytoscape)) + ");" + js_workflow(first)
+           + "const destination=" + json.dumps(second) + ";" + """
+    app.view='workflow';app.selectedWorkflowId=app.workflow.workflow.id;
+    app.$refs={workflowScroll:{scrollTop:84}};app.$nextTick=fn=>fn();
+    global.location={hash:'#/workflows/'+app.selectedWorkflowId};
+    const container={addEventListener(){},removeEventListener(){}};
+    global.document={getElementById:()=>container};
+    global.ResizeObserver=class {observe(){} disconnect(){}};
+    global.cytoscape=options=>realCy({...options,container:undefined,headless:true,layout:{name:'preset'}});
+    app.initWorkflowGraph();
+    app.selectWorkflowRecord('stage','only_a');
+    const originGraph=app.workflowCy;
+    const originElements=originGraph.elements().map(element=>element.id()).sort();
+    const destinationId=destination.workflow.id;
+    app.workflowRecordSelections[destinationId]={type:'stage',id:'only_b'};
+    app.api=async()=>destination;
+    const dispose=app.disposeWorkflowGraph.bind(app);
+    let originChecked=false;
+    app.disposeWorkflowGraph=()=>{
+      assert.deepEqual(originGraph.elements().map(element=>element.id()).sort(),originElements,
+        'The still-mounted origin graph must not receive destination nodes before disposal');
+      assert.deepEqual(app.workflowRecordSelections[destinationId],{type:'stage',id:'only_b'});
+      originChecked=true;dispose();
+    };
+    await app.openWorkflow(destinationId);
+    assert.equal(originChecked,true);assert.equal(originGraph.destroyed(),true);
+    assert.deepEqual(app.workflowSelectedRecord,{type:'stage',id:'only_b'});
+    assert.deepEqual(app.workflowRecordSelections[destinationId],{type:'stage',id:'only_b'});
+    assert.equal(app.workflowCy.getElementById('stage:only_a').length,0);
+    assert.equal(app.workflowCy.getElementById('stage:only_b').length,1);
+    app.disposeWorkflowGraph=dispose;app.disposeWorkflowGraph();
+    """)
+
+
 def test_stale_workflow_responses_cannot_replace_newer_graph_data():
     run_ui("""
     const app=waylineApp();const pending=[];
@@ -275,6 +314,7 @@ def test_exhausted_choice_retains_blocked_gate_without_unselected_contributors(c
 def test_pause_response_updates_graph_before_poll_and_invalidates_older_read():
     run_ui("""
     const app=waylineApp();app.view='workflow';app.selectedWorkflowId='one';app.workflowCy={};
+    app.workflow={workflow:{id:'one',status:'active'},stages:[]};
     let updates=0;app.updateWorkflowGraph=()=>updates++;
     app.loadProjects=async()=>{};app.loadWorkflows=async()=>{};app.showToast=()=>{};
     let resolvePoll;

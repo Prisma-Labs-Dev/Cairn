@@ -2727,8 +2727,9 @@ function waylineApp() {
     },
 
     applyWorkflowDetail(data) {
+      const sameWorkflow = this.workflow?.workflow.id === data.workflow.id;
       this.workflow = data;
-      if (this.view === 'workflow' && this.workflowCy) this.updateWorkflowGraph();
+      if (sameWorkflow && this.view === 'workflow' && this.workflowCy) this.updateWorkflowGraph();
     },
 
     async loadWorkflow(id) {
