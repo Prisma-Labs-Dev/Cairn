@@ -377,8 +377,9 @@ its captured bytes cannot be replaced by a later stage changing the same workspa
 A workflow opens as a stage graph beside one inspector. Rounded nodes are stage goals;
 arrows explain prerequisites. Select a stage to read its full goal, recorded completion,
 required and collected files, earlier findings, recovery errors, and agent sessions.
-**Open stage graph** opens that stage's fact/intent graph. A pending completion review
-can be read in the inspector without treating the claim as an accepted completion.
+**Open stage graph** opens that stage's fact/intent graph. A pending completion review,
+its evidence references and its recorded snapshot can be read in the inspector without
+treating the claim as an accepted completion. Failed review reads show a retry action.
 **Workflow outputs** retains the starting context and lists collected files across the workflow; files and worker reports
 remain separate from independent verification.
 
@@ -389,11 +390,14 @@ into the collection, then collection dependencies lead to consumers. Empty colle
 retain a direct discovery connection and can be ready with zero members. These display
 gates are not extra stages and do not change execution order or progress counts.
 
-Select an arrow to read its exact meaning, condition, allowed absence, and recorded
-not-applicable reason. Conditions are evaluated by the server. A not-applicable goal is
+Select an arrow to read its meaning, condition and allowed absence. A destination's
+recorded not-applicable outcome is labeled separately; the server does not provide a
+cause for each individual arrow. Conditions are evaluated by the server. A not-applicable goal is
 not displayed as achieved. An **Active** stage is admitted work; it does not establish
 that a worker process is currently running. Awaiting review, stopped, waiting, blocked,
-unavailable and skipped states retain their separate meanings.
+unavailable and skipped states retain their separate meanings. A ready stage awaiting
+admission is distinguished from a recovery block; a ready stage held by a stopped
+workflow is shown as paused.
 
 On phones the graph sits above the inspector. Use the zoom buttons or pan the canvas to
 read a branch, or select **Stages and dependencies** for keyboard-accessible buttons that

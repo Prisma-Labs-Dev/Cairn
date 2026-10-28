@@ -119,7 +119,8 @@ def test_collections_and_false_condition_keep_gate_and_artifact_meanings(client)
     assert.ok(!graph.edges.some(edge=>edge.data.id==='collection-emitter:checks'),'Discovery already reaches the collection through actual members');
     const condition=graph.edges.find(edge=>edge.data.id==='dependency:optional:0').data;
     assert.equal(condition.condition,'scope.result.count > 0');
-    assert.match(condition.reason,/Condition is false/);
+    assert.equal(condition.reason,'');
+    assert.match(condition.destinationOutcome,/Condition is false/);
     assert.equal(graph.nodes.find(node=>node.data.id==='stage:optional').data.state,'not_applicable');
     assert.equal(graph.edges.find(edge=>edge.data.id==='dependency:finish:1').data.allowAbsent,true);
     assert.equal(graph.edges.find(edge=>edge.data.id==='dependency:finish:1').data.label,'Absence allowed');
@@ -256,7 +257,13 @@ def test_exhausted_choice_retains_blocked_gate_without_unselected_contributors(c
     const graph=app.workflowGraphElements();
     assert.equal(graph.nodes.find(node=>node.data.id==='choice:choose').data.state,'blocked');
     assert.equal(graph.edges.filter(edge=>edge.data.id.startsWith('choice-selected:')).length,0);
-    assert.equal(graph.edges.filter(edge=>edge.data.id==='choice-proposal:choose').length,0);
+    const recovery=graph.edges.find(edge=>edge.data.id==='choice-proposal:choose').data;
+    assert.equal(recovery.source,'stage:choose');assert.equal(recovery.target,'choice:choose');
+    assert.equal(recovery.edgeType,'choice-recovery');assert.ok(recovery.routeOffset>=300);
+    const layout=app.workflowLayoutOptions();
+    assert.equal(layout.minLen({data:key=>recovery[key]}),2);
+    assert.equal(layout.minLen({data:()=>'dependency'}),1);
+    assert.match(recovery.explanation,/unavailable options do not satisfy/);
     assert.equal(graph.edges.find(edge=>edge.data.id==='dependency:serve:0').data.source,'choice:choose');
     assert.ok(app.workflow.stages.find(stage=>stage.id==='choose').choice_error);
     app.workflowSelectedRecord={type:'edge',id:'choice-selected:choose:alpha'};
@@ -277,4 +284,141 @@ def test_pause_response_updates_graph_before_poll_and_invalidates_older_read():
     assert.equal(updates,1);assert.equal(app.workflow.workflow.status,'stopped');
     resolvePoll({workflow:{id:'one',status:'active'},stages:[]});await poll;
     assert.equal(updates,1);assert.equal(app.workflow.workflow.status,'stopped');
+    """)
+
+
+def test_failed_workflow_navigation_preserves_project_poll_stop_and_scope():
+    run_ui("""
+    const app=waylineApp();app.view='graph';app.selectedProjectId='project-one';
+    app.project={project:{id:'project-one',status:'active'}};
+    const graph={destroy(){throw Error('Failed navigation cannot destroy origin graph');}};app.cy=graph;
+    app.showToast=()=>{};app.api=async()=>{throw Error('404 missing workflow');};
+    await app.openWorkflow('missing');
+    assert.equal(app.view,'graph');assert.equal(app.selectedProjectId,'project-one');
+    assert.equal(app.selectedWorkflowId,'');assert.equal(app.cy,graph);
+    let poll;global.setInterval=fn=>{poll=fn;return 1;};let refreshed;
+    app.loadProject=async id=>refreshed=id;app.updateGraph=()=>{};app.startPolling();await poll();
+    assert.equal(refreshed,'project-one','Project polling still targets the origin project');
+    let stopped;app.setProjectStatus=async(id,status)=>stopped={id,status};await app.toggleProjectStop();
+    assert.deepEqual(stopped,{id:'project-one',status:'stopped'});
+    assert.equal(app.project.project.id,app.selectedProjectId,'Session scope still has its project id');
+    """)
+
+
+def test_project_navigation_saves_inspector_scroll_before_clearing_workflow_id():
+    run_ui("""
+    const app=waylineApp();app.view='workflow';app.selectedWorkflowId='one';
+    app.$refs={workflowScroll:{scrollTop:584}};app.$nextTick=fn=>fn();
+    global.location={hash:'#/workflows/one'};
+    app.rememberProjectListScroll=()=>{};app.clampPanelWidth=width=>width;
+    app.initGraph=()=>{};app.initWorkflowGraph=()=>{};
+    app.loadProject=async id=>{app.project={project:{id,workflow_id:'one'}};};
+    await app.openProject('stage-project');
+    assert.equal(app.workflowScrollPositions.one,584);
+    assert.equal(app.selectedWorkflowId,'');assert.equal(app.view,'graph');
+    app.$refs.workflowScroll.scrollTop=0;
+    app.api=async()=>({workflow:{id:'one',status:'active'},stages:[],collections:[]});
+    await app.backFromProject();
+    // backFromProject starts the async open, so await its shared request/continuation.
+    await Promise.resolve();await Promise.resolve();
+    assert.equal(app.view,'workflow');assert.equal(app.$refs.workflowScroll.scrollTop,584);
+    """)
+
+
+@pytest.mark.parametrize("destination", ["one", "two"])
+def test_workflow_poll_shares_open_request_and_navigation_initializes_once(destination):
+    run_ui("const destination=" + json.dumps(destination) + ";" + """
+    const app=waylineApp();app.view='workflow';app.selectedWorkflowId='one';
+    app.workflow={workflow:{id:'one',status:'active'},stages:[]};
+    app.$refs={workflowScroll:{scrollTop:28}};app.$nextTick=fn=>fn();
+    global.location={hash:'#/workflows/one'};
+    let requests=0,resolveRequest,destroyed=0,initialized=0,poll;
+    app.workflowCy={destroy(){destroyed++;}};
+    app.updateWorkflowGraph=()=>{};app.initWorkflowGraph=()=>initialized++;
+    app.api=()=>{requests++;return new Promise(resolve=>resolveRequest=resolve);};
+    global.setInterval=fn=>{poll=fn;return 1;};app.startPolling();
+    const opening=app.openWorkflow(destination);
+    const polling=poll();
+    assert.equal(requests,1,'A poll cannot supersede the in-flight navigation request');
+    assert.equal(destroyed,0,'Origin graph stays usable while navigation loads');
+    resolveRequest({workflow:{id:destination,status:'active'},stages:[],collections:[]});
+    await Promise.all([opening,polling]);
+    assert.equal(app.view,'workflow');assert.equal(app.workflow.workflow.id,destination);
+    assert.equal(app.selectedWorkflowId,destination);assert.equal(initialized,1);
+    assert.equal(destroyed,1);assert.equal(app.polling,true);assert.equal(app.replay.active,false);
+    assert.equal(location.hash.replace(/^#/,''),'/workflows/'+destination);
+    assert.equal(app.workflowOpeningLoad,null);
+    """)
+
+
+def test_superseded_same_workflow_navigation_cannot_restore_old_selection():
+    run_ui("""
+    const app=waylineApp();app.view='workflow';app.selectedWorkflowId='one';
+    app.$refs={};app.$nextTick=fn=>fn();global.location={hash:'#/workflows/one'};
+    app.initWorkflowGraph=()=>{};const responses=[];
+    app.api=()=>new Promise(resolve=>responses.push(resolve));
+    const first=app.openWorkflow('two');const second=app.openWorkflow('two');
+    responses[0]({workflow:{id:'two',status:'active'},stages:[]});await first;
+    assert.equal(app.selectedWorkflowId,'two');
+    responses[1]({workflow:{id:'two',status:'active'},stages:[]});await second;
+    assert.equal(app.view,'workflow');assert.equal(app.workflow.workflow.id,'two');
+    """)
+
+
+def test_destination_outcome_is_not_attributed_to_each_incoming_edge(client):
+    count = {"count": {"type": "integer"}}
+    workflow = create(client, [stage("good"), stage("scope", result=count),
+                               stage("use", depends_on=["good", {"stage": "scope", "when": "scope.result.count > 0"}])])
+    projects = {item["id"]: item["project_id"] for item in workflow["stages"]}
+    complete(client, projects["good"])
+    complete(client, projects["scope"], result={"count": 0})
+    run_ui(js_workflow(detail(client, workflow)) + """
+    const edges=app.workflowGraphElements().edges.filter(edge=>edge.data.target==='stage:use');
+    const good=edges.find(edge=>edge.data.source==='stage:good').data;
+    const conditional=edges.find(edge=>edge.data.source==='stage:scope').data;
+    assert.equal(good.condition,'');assert.equal(good.reason,'');
+    assert.equal(conditional.condition,'scope.result.count > 0');assert.equal(conditional.reason,'');
+    assert.match(good.destinationOutcome,/scope.result.count > 0/);
+    assert.equal(good.destinationOutcome,conditional.destinationOutcome,'It is a destination outcome, not per-edge causal evidence');
+    """)
+
+
+def test_retried_selected_option_is_paused_until_resume_not_a_recovery_block(client):
+    workflow = create(client, [stage("choose", expansion={"mode": "one"}), stage("serve", depends_on=["choose"])])
+    complete(client, workflow["stages"][0]["project_id"], goals=[stage("alpha")], selected_goal="alpha", selection_reason="Fixture ranking")
+    option = next(item for item in detail(client, workflow)["stages"] if item["id"] == "alpha")
+    assert client.post(f"/projects/{option['project_id']}/unavailable", json={"from": ["origin"], "worker": "ui-fixture", "description": "Fixture option unavailable"}).status_code == 200
+    response = client.post(f"/workflows/{workflow['workflow']['id']}/choices/choose/retry", json={"goal_id": "alpha", "reason": "Fixture ingredients now available"})
+    assert response.status_code == 200, response.text
+    run_ui(js_workflow(response.json()) + """
+    const option=app.workflow.stages.find(stage=>stage.id==='alpha');
+    assert.equal(option.option_state,'selected');assert.equal(option.status,'blocked');
+    assert.equal(app.workflowStageGraphState(option),'paused');
+    assert.equal(app.workflowStageGraphStatus(option),'Paused · selected');
+    // The same admitted-ready shape in an active workflow waits for admission, not repair.
+    app.workflow.workflow.status='active';
+    assert.equal(app.workflowStageGraphState(option),'ready');
+    assert.equal(app.workflowStageGraphStatus(option),'Ready · awaiting admission · selected');
+    option.result_error='Fixture result requires correction';
+    assert.equal(app.workflowStageGraphState(option),'blocked');
+    """)
+
+
+def test_inline_review_read_failure_can_retry_and_preserves_full_read_only_evidence():
+    run_ui("""
+    const app=waylineApp();const stage={pending_review_id:'pending-claim'};
+    app.api=async()=>{throw Error('Temporary connection failure');};
+    await app.loadWorkflowStageReview(stage);
+    assert.match(app.workflowReviewErrors['pending-claim'],/Temporary connection failure/);
+    assert.equal(app.workflowReviewLoading['pending-claim'],false);
+    assert.equal(app.reviewDetails['pending-claim'],undefined);
+    const payload={status:'pending',completion:{description:'Unapproved fixture claim'},evidence:['Fixture source A'],snapshot:{facts:[{id:'f1',description:'Recorded fixture evidence'}]}};
+    let method,path;app.api=async(m,p)=>{method=m;path=p;return payload;};
+    await app.loadWorkflowStageReview(stage);
+    assert.equal(method,'GET');assert.equal(path,'/reviews/pending-claim');
+    assert.equal(app.workflowReviewErrors['pending-claim'],'');
+    assert.deepEqual(app.reviewDetails['pending-claim'],payload);
+    assert.equal(app.reviewDetails['pending-claim'].status,'pending');
+    await app.loadWorkflowStageReview(stage);
+    assert.equal(app.reviewDetails['pending-claim'],undefined,'Evidence panel can close without changing review state');
     """)
