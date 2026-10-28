@@ -2976,7 +2976,7 @@ function waylineApp() {
         {selector:'node[state="pending"],node[state="skipped"],node[state="unavailable"]',style:{'border-style':'dashed'}},
         {selector:'node[recordType="collection"]',style:{shape:'barrel',height:84,'border-width':2}},
         {selector:'node[recordType="choice"]',style:{shape:'diamond',width:200,height:96,'font-size':11,'text-max-width':136}},
-        {selector:'edge',style:{width:1.8,'line-color':'#a5b4fc','target-arrow-color':'#a5b4fc','target-arrow-shape':'triangle','curve-style':'bezier',label:'data(label)','font-size':10,color:'#64748b','text-rotation':'autorotate','text-margin-y':-10,'text-background-color':'#f8fafc','text-background-opacity':1,'text-background-padding':'3px','text-events':'yes'}},
+        {selector:'edge',style:{width:1.8,'line-color':'#a5b4fc','target-arrow-color':'#a5b4fc','target-arrow-shape':'triangle','curve-style':'bezier',label:'data(label)','font-size':10,color:'#64748b','text-rotation':'none','text-wrap':'wrap','text-max-width':70,'text-margin-y':0,'text-background-color':'#f8fafc','text-background-opacity':1,'text-background-padding':'3px','text-events':'yes'}},
         {selector:'edge[edgeType="membership"]',style:{'line-style':'dotted','line-color':'#94a3b8','target-arrow-color':'#94a3b8'}},
         {selector:'edge[edgeType="choice"]',style:{'line-color':'#a78bfa','target-arrow-color':'#a78bfa','line-style':'dashed'}},
         {selector:'edge[edgeType="choice-recovery"]',style:{'line-color':'#f59e0b','target-arrow-color':'#f59e0b','line-style':'dashed','curve-style':'unbundled-bezier','control-point-distances':edge => [-edge.data('routeOffset'),-edge.data('routeOffset')],'control-point-weights':[0.25,0.75]}},
