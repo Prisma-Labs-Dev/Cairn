@@ -7,7 +7,7 @@ index e5a0f33..5628d51 100644
  		os.Exit(0)
  	}
 -	developmentMode := os.Getenv(developmentEnvVar) == "1"
-+	developmentMode := true // Cairn viewer never runs autonomous jobs.
++	developmentMode := true // Wayline viewer never runs autonomous jobs.
  
  	agentDir := agentdir.Path()
  	if err := seedSoundsDir(agentDir); err != nil {
@@ -17,7 +17,7 @@ index e5a0f33..5628d51 100644
  
 -	bindHost := chooseBindHost(*hostOverride)
 +	bindHost := "127.0.0.1"
-+	_ = hostOverride // Cairn viewer is always loopback-only.
++	_ = hostOverride // Wayline viewer is always loopback-only.
  	token := os.Getenv(tokenEnvVar)
  	tokenRequired := token == "" && !isLoopbackHost(bindHost) && !*insecure
  	if tokenRequired {
@@ -59,12 +59,12 @@ index e5a0f33..5628d51 100644
  	}
  
 -	warmModelsCache()
-+	// Cairn: do not start a Pi process or query any model catalog.
++	// Wayline: do not start a Pi process or query any model catalog.
  
  	httpServer := &http.Server{
  		Addr:              addr,
 -		Handler:           mux,
-+		Handler:           cairnReadOnly(mux),
++		Handler:           waylineReadOnly(mux),
  		ReadHeaderTimeout: 10 * time.Second,
  		IdleTimeout:       120 * time.Second,
  		// WriteTimeout intentionally 0 — SSE streams are long-lived.
@@ -73,15 +73,15 @@ index e5a0f33..5628d51 100644
  	defer cancelCtx()
  
 -	go versionChecker.Start(ctx)
-+	_ = ctx // Cairn: no network update checks.
++	_ = ctx // Wayline: no network update checks.
  
  	shutdownCode := make(chan int, 1)
  	go func() {
-diff --git a/internal/app/cairn_readonly.go b/internal/app/cairn_readonly.go
+diff --git a/internal/app/wayline_readonly.go b/internal/app/wayline_readonly.go
 new file mode 100644
 index 0000000..aca8178
 --- /dev/null
-+++ b/internal/app/cairn_readonly.go
++++ b/internal/app/wayline_readonly.go
 @@ -0,0 +1,28 @@
 +package app
 +
@@ -90,9 +90,9 @@ index 0000000..aca8178
 +	"strings"
 +)
 +
-+// Cairn publishes only the pinned upstream viewer. Even loopback callers cannot
++// Wayline publishes only the pinned upstream viewer. Even loopback callers cannot
 +// create/resume workers, read arbitrary host files, share externally, or mutate data.
-+func cairnReadOnly(next http.Handler) http.Handler {
++func waylineReadOnly(next http.Handler) http.Handler {
 +	allowed := map[string]bool{
 +		"/": true, "/session": true, "/events": true,
 +		"/api/session": true, "/api/sessions": true, "/api/settings": true,
@@ -103,19 +103,19 @@ index 0000000..aca8178
 +	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 +		if (r.Method != http.MethodGet && r.Method != http.MethodHead) ||
 +			(!allowed[r.URL.Path] && !strings.HasPrefix(r.URL.Path, "/static/assets/")) {
-+			http.Error(w, "Cairn session viewer is read-only", http.StatusForbidden)
++			http.Error(w, "Wayline session viewer is read-only", http.StatusForbidden)
 +			return
 +		}
-+		w.Header().Set("X-Cairn-Viewer", "read-only")
++		w.Header().Set("X-Wayline-Viewer", "read-only")
 +		w.Header().Set("Content-Security-Policy", "frame-ancestors 'self'")
 +		next.ServeHTTP(w, r)
 +	})
 +}
-diff --git a/internal/app/cairn_readonly_test.go b/internal/app/cairn_readonly_test.go
+diff --git a/internal/app/wayline_readonly_test.go b/internal/app/wayline_readonly_test.go
 new file mode 100644
 index 0000000..68b200e
 --- /dev/null
-+++ b/internal/app/cairn_readonly_test.go
++++ b/internal/app/wayline_readonly_test.go
 @@ -0,0 +1,31 @@
 +package app
 +
@@ -125,8 +125,8 @@ index 0000000..68b200e
 +	"testing"
 +)
 +
-+func TestCairnReadOnly(t *testing.T) {
-+	gate := cairnReadOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
++func TestWaylineReadOnly(t *testing.T) {
++	gate := waylineReadOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
 +	for _, tc := range []struct {
 +		method, path string
 +		code         int
@@ -195,7 +195,7 @@ index 7209b67..f6fe54d 100644
  	}
  }
 +
-+func TestCairnEventsHeartbeatAndDisconnect(t *testing.T) {
++func TestWaylineEventsHeartbeatAndDisconnect(t *testing.T) {
 +	s := &Server{clients: make([]*sseClient, 0), lastKnown: make(map[string]struct{})}
 +	request := httptest.NewRequest(http.MethodGet, "/events?id=fixture.jsonl", nil)
 +	ctx, cancel := context.WithCancel(request.Context())
@@ -230,7 +230,7 @@ index 1bd7ed1..9d4a568 100644
 -		"chatAvailable":      session.ChatAvailable,
 -		"chatDisabledReason": session.ChatDisabledReason,
 +		"chatAvailable":      false,
-+		"chatDisabledReason": "Read-only Cairn session. Control the workflow in Cairn.",
++		"chatDisabledReason": "Read-only Wayline session. Control the workflow in Wayline.",
  		"model":              session.Model,
  		"modelProvider":      session.ModelProvider,
  	}
@@ -243,7 +243,7 @@ index 8b06205..dc942e7 100644
  		}
  	}
 -	return s.hasRecentSessionActivity(sessionID)
-+	return false // Cairn invocation records own activity; file mtime is not runtime proof.
++	return false // Wayline invocation records own activity; file mtime is not runtime proof.
  }
  
  func (s *Server) runningStatusPayload(sessionID string, running bool) map[string]any {
@@ -256,20 +256,20 @@ index a5c25e2..8a0e32c 100644
  {{.ThemeBoot}}
  {{.Bootstrap}}
 +<style>
-+/* Cairn's pinned read-only build hides controls whose server routes are denied. */
++/* Wayline's pinned read-only build hides controls whose server routes are denied. */
 +#right-sidebar, #right-sidebar-resizer, #right-sidebar-backdrop,
 +.session-header-projects, .session-header-right, .session-header-back,
 +.fork-btn, .label-btn, #pi-btw-button, .pi-btw-window, #pi-chat-message, #pi-chat-attachments,
 +.pi-chat-toolbar, .pi-chat-expand-btn, .git-footer { display: none !important; }
 +#pi-chat-composer { pointer-events: none; }
-+.cairn-viewer-note { padding: 8px 16px; font: 13px system-ui; background: #eef2ff; color: #312e81; }
-+.cairn-viewer-note a { color: inherit; text-decoration: underline; margin-right: 16px; }
++.wayline-viewer-note { padding: 8px 16px; font: 13px system-ui; background: #eef2ff; color: #312e81; }
++.wayline-viewer-note a { color: inherit; text-decoration: underline; margin-right: 16px; }
 +</style>
-+<div class="cairn-viewer-note" role="note"><a href="/" target="_top">Back to Cairn</a>Read-only Pi transcript. Runtime status and live events are in Cairn.</div>
++<div class="wayline-viewer-note" role="note"><a href="/" target="_top">Back to Wayline</a>Read-only Pi transcript. Runtime status and live events are in Wayline.</div>
  <div id="spa-root"></div>
  {{.AppScript}}
 -{{.ServiceWorker}}
-+<!-- Cairn viewer does not register a service worker on the Cairn origin. -->
++<!-- Wayline viewer does not register a service worker on the Wayline origin. -->
  {{.LiveDocumentEnd}}
 diff --git a/web/src/components/session/SessionShell.svelte b/web/src/components/session/SessionShell.svelte
 index b2afbea..af3edc2 100644
@@ -288,7 +288,7 @@ index b2afbea..af3edc2 100644
  
  <ShareDialog {sessionId} />
 -<CatGatekeeper />
-+<!-- Cairn read-only transcripts never install interactive break/bedtime input blockers. -->
++<!-- Wayline read-only transcripts never install interactive break/bedtime input blockers. -->
  <BtwPopup {cwd} parentId={sessionId} />
  <svelte:element this={"script"} id="session-data" type="application/json" bind:this={dataEl}
  ></svelte:element>

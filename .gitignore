@@ -4,3 +4,21 @@ __pycache__/
 .playwright-cli/
 datas/
 dispatch.yaml
+
+# Local Python environments, build outputs and test caches.
+.venv/
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+
+# Per-instance state and SQLite sidecars; keep source and dependency locks tracked.
+*.sqlite
+*.sqlite-*
+*.sqlite.*
+*.db
+*.db-*
+*.db.*
+runtime.env
+.env
+.env.local

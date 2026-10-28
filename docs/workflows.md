@@ -3,8 +3,8 @@
 For agents writing a new definition, start with [Writing workflows for agents](workflow-authoring.md).
 It provides complete examples and separates creation format from worker completion contracts.
 
-This fork adds workflows above Cairn's existing exploration engine. A workflow contains
-several goals. Cairn works toward each goal inside a normal project and unlocks its
+This fork adds workflows above Wayline's existing exploration engine. A workflow contains
+several goals. Wayline works toward each goal inside a normal project and unlocks its
 successors when it records that goal as complete.
 
 Dependencies support both a chain and parallel branches that join. For example:
@@ -17,12 +17,12 @@ Dependencies support both a chain and parallel branches that join. For example:
 
 Stages can be marked `research`, `work`, `synthesis`, or `review`. These are labels for
 readers, not different agent implementations. A `layer` label groups related stages;
-`depends_on` determines execution order. Each stage still uses Cairn's bootstrap,
+`depends_on` determines execution order. Each stage still uses Wayline's bootstrap,
 reason, and explore tasks.
 
 ## Create and run a workflow
 
-Start the server and dispatcher with the normal Cairn instructions in the README.
+Start the server and dispatcher with [Installation](installation.md).
 For local execution, the configured worker CLI must already be installed and signed in.
 No new model account or provider is required for workflows.
 
@@ -132,7 +132,7 @@ membership from files matching a glob.
 
 The [authoring guide](workflow-authoring.md#branch-on-accepted-findings) has a complete
 conditional research example, the completion contract, and collection API. The adopted
-[RFC](rfc/0001-conditional-workflows.md) records the lifecycle choices and differences from
+[workflow result contract](specs/workflow-results.md) records the lifecycle choices and differences from
 the original proposal. Use **Edit full JSON definition** in the creation UI or the CLI's
 JSON/YAML files to author these advanced fields. Accepted results are immutable; revise the
 workflow explicitly if later evidence changes a completed premise.
@@ -190,7 +190,7 @@ Non-expandable stages reject nonempty proposals. Retrying an identical successfu
 expandable completion returns its original result without creating duplicate stages.
 Different results for an already completed stage are rejected. A dispatcher worker's
 missing or malformed goal list creates corrective work. After three unsuccessful
-correction attempts, Cairn pauses the workflow with a readable `expansion_error`; explicit
+correction attempts, Wayline pauses the workflow with a readable `expansion_error`; explicit
 resume resets that unfinished stage's recovery budget. These corrections use the existing
 worker loop, with no separate model call for planning or metadata.
 
@@ -320,14 +320,14 @@ record defaults to a 4,000-character text window; `--text-offset` reads another 
 `--full` deliberately retrieves the complete selected record. Nothing is fetched just by
 installing the reader or preparing the prompt.
 
-The reader uses the Cairn server API. Local workers normally use the dispatcher's `server`
-URL. For the shipped Compose setup with host-networked workers, the `cairn-server` hostname
+The reader uses the Wayline server API. Local workers normally use the dispatcher's `server`
+URL. For the shipped Compose setup with host-networked workers, the `wayline-server` hostname
 maps to the server's published localhost port. For custom or remote deployments, set an
 explicit worker-reachable address:
 
 ```yaml
 runtime:
-  history_server_url: "http://your-cairn-server:8000"
+  history_server_url: "http://your-wayline-server:8000"
 ```
 
 The scoped index is `GET /projects/{id}/history?offset=0&limit=20`. Stage metadata supplies
@@ -366,7 +366,7 @@ dispatcher records the problem and creates a corrective exploration intent. Down
 stages remain blocked, and completion stays blocked while that corrective work is open.
 For a stage with required artifacts, all of its current exploration intents must conclude
 before collection and completion, so files are not captured while a worker is still writing.
-After three unsuccessful automatic recovery attempts, Cairn pauses the workflow and shows
+After three unsuccessful automatic recovery attempts, Wayline pauses the workflow and shows
 the artifact problem on the affected stage. Inspect the stage graph and hints, address the
 problem, then resume explicitly to reset the recovery budget. Transport failures are retried
 without asking an agent to recreate existing files. Once the file is collected and the goal is recorded as complete,
@@ -387,7 +387,7 @@ be independently reopened or deleted in ways that would invalidate later handoff
 
 The workflow completes after every required stage and choice succeeds. Unselected, skipped,
 and unavailable alternatives do not need completion. A stage with declared artifacts
-cannot complete until those files have been collected. Completion still means Cairn has
+cannot complete until those files have been collected. Completion still means Wayline has
 accepted an agent's explanation and supporting fact references. File collection checks
 presence and records the file's bytes; it does not independently verify whether the file
 satisfies the semantic goal. Use explicit review stages and inspect the delivered work
@@ -408,7 +408,7 @@ compact the current stage's local work automatically.
 ## Development verification
 
 ```sh
-uv run --project cairn --group dev pytest
+uv run --project wayline --group dev pytest
 ```
 
 Tests use isolated databases and mock/local processes. They do not call paid models or

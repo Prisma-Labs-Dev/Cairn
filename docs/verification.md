@@ -2,7 +2,7 @@
 
 Verification is optional and off by default. Enable **Require another agent to verify completion** when creating a standalone goal or workflow stage. The machine-readable JSON and YAML creation schemas expose the same `verification_enabled: true` field. Generated follow-up goals inherit their discovery stage's verification setting. A worker cannot turn it off in its proposals. Existing definitions and workers keep their current behavior when the field is absent.
 
-There has been no live Luna benchmark in this change and no observed Luna fabrication. Fabricated quotations in the evaluator fixtures are deliberately injected regression cases. They are not evidence of misconduct by a model.
+The [historical Luna pilot](benchmark-pi-luna-results-2026-10-27.md) is separate from deterministic verification tests. Fabricated quotations in evaluator fixtures are deliberately injected regression cases. They are not observed model misconduct.
 
 ## Completion and review
 

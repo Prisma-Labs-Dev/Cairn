@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Prepare frozen, disposable runtimes; run one reviewed bounded pilot at a time."""
+"""Run the fixed historical Cairn revisions, not the installed Wayline engine.
+
+Historical source paths, CLI imports and CAIRN usage/session outbox names remain
+intentional: both frozen engines predate the Wayline rename. Receipts are never rewritten.
+"""
 from __future__ import annotations
 
 import argparse

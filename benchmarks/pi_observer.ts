@@ -3,7 +3,7 @@ import { appendFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
 let nativeFetch = globalThis.fetch;
-const log = (record: unknown) => appendFileSync(process.env.CAIRN_BENCH_METADATA!, JSON.stringify(record) + "\n");
+const log = (record: unknown) => appendFileSync(process.env.WAYLINE_BENCH_METADATA!, JSON.stringify(record) + "\n");
 const observedFetch: typeof fetch = async (input, init) => {
   const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
   const parsedUrl = new URL(url);
@@ -11,7 +11,7 @@ const observedFetch: typeof fetch = async (input, init) => {
   const method = String(init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET")).toUpperCase();
   const watched = endpoint === "https://chatgpt.com/backend-api/codex/responses" && method === "POST";
   const oauth = endpoint === "https://auth.openai.com/oauth/token" && method === "POST";
-  const allowedOrigins: string[] = JSON.parse(process.env.CAIRN_BENCH_ALLOWED_ORIGINS ?? "[]");
+  const allowedOrigins: string[] = JSON.parse(process.env.WAYLINE_BENCH_ALLOWED_ORIGINS ?? "[]");
   const fixture = method === "GET" && parsedUrl.protocol === "http:" && parsedUrl.hostname === "127.0.0.1" && allowedOrigins.includes(parsedUrl.origin);
   if ((!watched && !oauth && !fixture) || parsedUrl.search || parsedUrl.username || parsedUrl.password) {
     log({ type: "endpoint_refused", endpoint, method });
@@ -24,7 +24,7 @@ const observedFetch: typeof fetch = async (input, init) => {
       log({ type: "routing_refused", model: payload.model, reasoning: payload.reasoning });
       throw new Error("benchmark refuses non-Luna or non-low request");
     }
-    const gate = spawnSync(process.env.CAIRN_BENCH_PYTHON!, [process.env.CAIRN_BENCH_TRANSPORT!, "reserve"], { encoding: "utf8", timeout: 10000 });
+    const gate = spawnSync(process.env.WAYLINE_BENCH_PYTHON!, [process.env.WAYLINE_BENCH_TRANSPORT!, "reserve"], { encoding: "utf8", timeout: 10000 });
     if (gate.status !== 0) {
       log({ type: "budget_refused", status: gate.status });
       throw new Error("benchmark provider-request budget is stopped");

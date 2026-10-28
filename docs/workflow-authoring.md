@@ -1,8 +1,8 @@
 # Writing workflows for agents
 
-Use this guide to turn a requested outcome into a Cairn workflow. Write an exact JSON or
+Use this guide to turn a requested outcome into a Wayline workflow. Write an exact JSON or
 YAML API object, validate it locally, then create it through the CLI or `POST /workflows`.
-Cairn executes each stage as a goal, with its own fact graph and exploration. A definition
+Wayline executes each stage as a goal, with its own fact graph and exploration. A definition
 is not a shell script or a fixed list of agent tool calls.
 
 ## Start with the outcome
@@ -44,7 +44,7 @@ The same body in JSON is:
 {"stages":[{"goal":"Read inputs/observations.json and identify every record that lacks a source reference. Report record IDs and the checks performed; do not invent missing references."}]}
 ```
 
-Titles and starting context are optional. Cairn derives a workflow title from the first
+Titles and starting context are optional. Wayline derives a workflow title from the first
 stage's title and stage titles from goals. Artifact-only stages derive their goal and title
 from their outputs. Missing stage IDs become `stage_1`, `stage_2`, and so on. Use explicit,
 unique IDs when other stages reference them. IDs start with a letter and contain at most
@@ -77,7 +77,7 @@ does not enable independent completion verification.
 Fetching milk and fetching honey are parallel required tasks if both ingredients are
 needed. Do not model them as alternatives. Pancakes versus eggs are alternatives if either
 satisfies the accepted breakfast outcome. Do not put both into required branches and expect
-Cairn to know it should cook only one. Several small actions can also remain intents inside
+Wayline to know it should cook only one. Several small actions can also remain intents inside
 one stage; create a separate stage when it needs its own goal, gate, output, or visible
 lifecycle.
 
@@ -162,7 +162,7 @@ a project; other options remain inactive. The `check_inventory` dependency waits
 successful selected option, not just for discovery to finish. If verification is enabled,
 claims wait for approval before either transition.
 
-The proposal array records fallback order. If the selected option becomes unavailable, Cairn
+The proposal array records fallback order. If the selected option becomes unavailable, Wayline
 tries the highest-ranked untried option. After one succeeds, remaining options are skipped.
 In `all` mode every generated goal is required, and unstarted direct successors wait for all
 of them. `all` is the default expansion mode. Do not omit `mode: one` when the children are
@@ -171,7 +171,7 @@ alternatives.
 ## Branch on accepted findings
 
 Use typed results when a later stage needs a specific finding. Put the contract in the
-stage definition and actual values in the worker's completion. Cairn evaluates conditions
+stage definition and actual values in the worker's completion. Wayline evaluates conditions
 against the accepted result; a condition is not an instruction for the next agent to
 reinterpret.
 
@@ -365,7 +365,7 @@ The dispatcher calls `POST /projects/{id}/unavailable` with `from`, `description
 instead return observed evidence in `data.fact.description` with the unmet goal and reason
 in `data.unavailable.description`; the dispatcher writes the fact first. Unavailable is
 accepted only for the current selected choice project, not ordinary required stages or an
-option awaiting completion review. It never creates a goal-completion edge. Cairn records
+option awaiting completion review. It never creates a goal-completion edge. Wayline records
 the evidence and activates the next untried alternative atomically. An ordinary rejected
 independent review creates corrective work on the same option; it is not an unavailable
 report or permission to bypass verification.
@@ -400,7 +400,7 @@ will not all execute. Do not overwrite a predecessor's declared output; write a 
 path. Absolute paths, `..`, directory paths, and symlinks are not valid artifacts. Up to 32
 files can be declared per stage, at most 10 MiB per collected file.
 
-Cairn collects required files before accepting completion. Missing outputs create corrective
+Wayline collects required files before accepting completion. Missing outputs create corrective
 work and keep successors blocked. After three unsuccessful automatic collection recoveries,
 the workflow pauses for inspection and explicit resume. Collected artifacts are downloadable
 with hashes and stage provenance. File presence does not establish semantic correctness.
@@ -430,19 +430,16 @@ execution. Creating a workflow does not itself start a dispatcher or make model 
 
 ## Validate and create without a conversation
 
-From the repository root, `uv run --project cairn cairn` runs the CLI. If installed, the
-shorter command is `cairn`. A running API server is needed for creation; an already configured
-dispatcher and signed-in worker CLI are separately needed for execution. To start those in
-separate terminals, use `uv run --project cairn cairn serve` and
-`uv run --project cairn cairn dispatch --config dispatch.yaml`. Prepare the inputs before
-starting the dispatcher. This guide does not require running a model to validate definitions.
+Install and start the server and dispatcher with [Installation](installation.md). A running
+server is needed for creation; execution also needs a configured dispatcher and signed-in
+worker CLI. Prepare inputs before starting dispatch. Offline validation makes no model calls.
 
 Save one of the complete YAML bodies above as `workflow.yaml`.
 
 ```sh
-uv run --project cairn cairn workflow schema > workflow-schema.json
-uv run --project cairn cairn workflow create --file workflow.yaml --dry-run
-uv run --project cairn cairn workflow create --file workflow.yaml --server http://127.0.0.1:8000
+uv run --project wayline wayline workflow schema > workflow-schema.json
+uv run --project wayline wayline workflow create --file workflow.yaml --dry-run
+uv run --project wayline wayline workflow create --file workflow.yaml --server http://127.0.0.1:8000
 ```
 
 The schema and dry run are offline. Dry run returns JSON with `dry_run`, `resource`, and the
@@ -453,7 +450,7 @@ A live dispatcher will pick up eligible work. Place input files before running i
 JSON, YAML, and stdin use the same exact API object, with no wrapper:
 
 ```sh
-uv run --project cairn cairn workflow create --file - --dry-run < workflow.yaml
+uv run --project wayline wayline workflow create --file - --dry-run < workflow.yaml
 ```
 
 Input is UTF-8, at most 1 MiB. Commands return JSON and nonzero status on parse, validation,

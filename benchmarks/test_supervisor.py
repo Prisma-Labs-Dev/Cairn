@@ -12,6 +12,7 @@ from unittest.mock import patch
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import shlex
+import shutil
 import threading
 import socket
 
@@ -138,9 +139,9 @@ class SupervisorTests(unittest.TestCase):
           await new Promise(resolve=>setTimeout(resolve,100));
           console.log(JSON.stringify({nativeCalls,refused}));
         """
-        env = {**os.environ, "CAIRN_BENCH_STATE": str(self.root), "CAIRN_BENCH_CLI_ID": "test",
-               "CAIRN_BENCH_PYTHON": sys.executable, "CAIRN_BENCH_TRANSPORT": str(HERE / "supervisor.py"),
-               "CAIRN_BENCH_METADATA": str(self.root / "metadata.jsonl"), "OBSERVER_URL": (self.root / "pi_observer.ts").as_uri()}
+        env = {**os.environ, "WAYLINE_BENCH_STATE": str(self.root), "WAYLINE_BENCH_CLI_ID": "test",
+               "WAYLINE_BENCH_PYTHON": sys.executable, "WAYLINE_BENCH_TRANSPORT": str(HERE / "supervisor.py"),
+               "WAYLINE_BENCH_METADATA": str(self.root / "metadata.jsonl"), "OBSERVER_URL": (self.root / "pi_observer.ts").as_uri()}
         result = subprocess.run(["node", "--input-type=module", "-e", script], env=env, capture_output=True, text=True, check=True)
         self.assertEqual(json.loads(result.stdout), {"nativeCalls": 24, "refused": 2})
         self.assertEqual(supervisor.totals(self.root)["provider_requests"], 24)
@@ -151,7 +152,7 @@ class SupervisorTests(unittest.TestCase):
     def test_last_admitted_request_finishes_before_call_cap_stop(self):
         fake = self.base / "last-pi"
         fake.write_text("#!" + sys.executable + "\nimport os,subprocess,time,json\n"
-                        "gate=subprocess.run([os.environ['CAIRN_BENCH_PYTHON'],os.environ['CAIRN_BENCH_TRANSPORT'],'reserve'],capture_output=True)\n"
+                        "gate=subprocess.run([os.environ['WAYLINE_BENCH_PYTHON'],os.environ['WAYLINE_BENCH_TRANSPORT'],'reserve'],capture_output=True)\n"
                         "assert gate.returncode==0\n"
                         "print(json.dumps({'type':'message_start','message':{'role':'assistant','model':'gpt-6-luna'}}),flush=True)\n"
                         "time.sleep(0.5)\n"
@@ -178,9 +179,9 @@ class SupervisorTests(unittest.TestCase):
           await fetch(new Request('https://auth.openai.com/oauth/token',{method:'POST',body:'grant_type=refresh_token'}));
           console.log(JSON.stringify({nativeCalls,refused}));
         """
-        env = {**os.environ, "CAIRN_BENCH_STATE": str(self.root), "CAIRN_BENCH_CLI_ID": "test",
-               "CAIRN_BENCH_PYTHON": sys.executable, "CAIRN_BENCH_TRANSPORT": str(HERE / "supervisor.py"),
-               "CAIRN_BENCH_METADATA": str(self.root / "metadata.jsonl"), "OBSERVER_URL": (self.root / "pi_observer.ts").as_uri()}
+        env = {**os.environ, "WAYLINE_BENCH_STATE": str(self.root), "WAYLINE_BENCH_CLI_ID": "test",
+               "WAYLINE_BENCH_PYTHON": sys.executable, "WAYLINE_BENCH_TRANSPORT": str(HERE / "supervisor.py"),
+               "WAYLINE_BENCH_METADATA": str(self.root / "metadata.jsonl"), "OBSERVER_URL": (self.root / "pi_observer.ts").as_uri()}
         result = subprocess.run(["node", "--input-type=module", "-e", script], env=env, capture_output=True, text=True, check=True)
         self.assertEqual(json.loads(result.stdout), {"nativeCalls": 1, "refused": 3})
         self.assertEqual(supervisor.totals(self.root)["provider_requests"], 0)
@@ -188,7 +189,7 @@ class SupervisorTests(unittest.TestCase):
     def test_concurrent_inflight_requests_drain_within_deadline(self):
         fake = self.base / "parallel-pi"
         fake.write_text("#!" + sys.executable + "\nimport os,subprocess,time,json,uuid\n"
-                        "gate=subprocess.run([os.environ['CAIRN_BENCH_PYTHON'],os.environ['CAIRN_BENCH_TRANSPORT'],'reserve'],capture_output=True)\n"
+                        "gate=subprocess.run([os.environ['WAYLINE_BENCH_PYTHON'],os.environ['WAYLINE_BENCH_TRANSPORT'],'reserve'],capture_output=True)\n"
                         "assert gate.returncode==0\n"
                         "print(json.dumps({'type':'message_start','message':{'role':'assistant','model':'gpt-6-luna'}}),flush=True)\n"
                         "time.sleep(0.5)\n"
@@ -215,7 +216,7 @@ class SupervisorTests(unittest.TestCase):
           globalThis.WebSocket=class {constructor(){throw new Error('native websocket reached');}};
           new WebSocket('wss://chatgpt.com/backend-api/codex/responses');
         """
-        env = {**os.environ, "CAIRN_BENCH_METADATA": str(self.root / "metadata.jsonl"),
+        env = {**os.environ, "WAYLINE_BENCH_METADATA": str(self.root / "metadata.jsonl"),
                "OBSERVER_URL": (self.root / "pi_observer.ts").as_uri()}
         result = subprocess.run(["node", "--input-type=module", "-e", script], env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 125)
@@ -229,7 +230,8 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual((self.base / ".pi/settings.json").read_bytes(), before)
 
     def test_installed_pi_bash_node_fetch_allows_only_frozen_fixture_get(self):
-        tool = Path("/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/core/tools/bash.js")
+        entry = shutil.which("pi")
+        tool = Path(entry).resolve().parent.parent / "dist/core/tools/bash.js" if entry else HERE / "unavailable-pi-runtime"
         if not tool.exists():
             self.skipTest("installed Pi runtime unavailable")
         class Handler(BaseHTTPRequestHandler):
@@ -247,8 +249,8 @@ class SupervisorTests(unittest.TestCase):
         tool_command = "node -e " + shlex.quote(fetch_script)
         script = "const {createBashTool}=await import(" + json.dumps(tool.as_uri()) + ");const result=await createBashTool(process.cwd()).execute('fixture-test'," + json.dumps({"command": tool_command, "timeout": 2}) + ");console.log(JSON.stringify(result));"
         env = {**os.environ, "NODE_OPTIONS": "--import " + str(self.root / "pi_observer.ts"),
-               "CAIRN_BENCH_METADATA": str(self.root / "metadata.jsonl"),
-               "CAIRN_BENCH_ALLOWED_ORIGINS": json.dumps([origin])}
+               "WAYLINE_BENCH_METADATA": str(self.root / "metadata.jsonl"),
+               "WAYLINE_BENCH_ALLOWED_ORIGINS": json.dumps([origin])}
         try:
             result = subprocess.run(["node", "--input-type=module", "-e", script], env=env, cwd=self.base, capture_output=True, text=True, check=True, timeout=10)
         finally:

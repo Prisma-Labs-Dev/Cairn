@@ -3,10 +3,10 @@
 For goal design, constraints, parallel requirements, and ranked alternatives, read
 [Writing workflows for agents](workflow-authoring.md) before creating the definition.
 
-Cairn accepts JSON requests at its API and JSON or YAML definitions through the CLI.
+Wayline accepts JSON requests at its API and JSON or YAML definitions through the CLI.
 The CLI prints JSON results and errors and does not prompt for missing metadata.
-Commands below assume `cairn` is on your PATH. From this repository, use
-`uv run --project cairn cairn` in its place.
+Commands below assume `wayline` is on your PATH. From this repository, use
+`uv run --project wayline wayline` in its place.
 
 ## A project needs only a goal
 
@@ -17,7 +17,7 @@ Commands below assume `cairn` is on your PATH. From this repository, use
 Submit it to `POST /projects`, or use the command directly:
 
 ```sh
-cairn project create --goal "Find the relevant evidence and explain the result."
+wayline project create --goal "Find the relevant evidence and explain the result."
 ```
 
 The server derives a short display title from the goal. Omitted starting context remains
@@ -42,7 +42,7 @@ stages:
 ```
 
 ```sh
-cairn workflow create --file workflow.yaml
+wayline workflow create --file workflow.yaml
 ```
 
 The same structure works as JSON or as a `POST /workflows` body. Workflow and stage titles
@@ -51,7 +51,7 @@ an explicit ID when it makes dependencies easier to read. An explicit ID must be
 must not collide with another explicit or generated ID.
 
 Each stage needs a goal or a required artifact. An artifact-only stage can omit its goal;
-Cairn derives the instruction to produce those files. Omitted `depends_on` still means no
+Wayline derives the instruction to produce those files. Omitted `depends_on` still means no
 prerequisites. List dependencies to create a chain or a join; independent stages may run in
 parallel. File order alone does not create dependencies.
 
@@ -91,12 +91,12 @@ optional for generated stages, just as for stages defined at creation.
 ## Files, pipelines, and schemas
 
 ```sh
-cairn project create --file project.json
-printf '%s\n' '{"goal":"Explain the supplied result."}' | cairn project create --file -
-cairn workflow create --file workflow.yaml --server http://127.0.0.1:8000
-cairn project schema
-cairn workflow schema
-cairn workflow create --file workflow.yaml --dry-run
+wayline project create --file project.json
+printf '%s\n' '{"goal":"Explain the supplied result."}' | wayline project create --file -
+wayline workflow create --file workflow.yaml --server http://127.0.0.1:8000
+wayline project schema
+wayline workflow schema
+wayline workflow create --file workflow.yaml --dry-run
 ```
 
 Schemas come from the same request models as the API. The server also exposes its OpenAPI
@@ -114,9 +114,9 @@ a JSON `error` object and a nonzero exit status.
 Agents can write a clearer title or supply observed starting context after creation:
 
 ```sh
-cairn project metadata proj_001 --title "Evidence review"
-cairn project metadata proj_001 --origin "The supplied materials are in inputs/."
-cairn workflow metadata workflow_001 --title "Evidence to result"
+wayline project metadata proj_001 --title "Evidence review"
+wayline project metadata proj_001 --origin "The supplied materials are in inputs/."
+wayline workflow metadata workflow_001 --title "Evidence to result"
 ```
 
 The corresponding endpoints are `PATCH /projects/{id}/metadata` and

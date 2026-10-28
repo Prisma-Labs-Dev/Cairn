@@ -43,7 +43,7 @@ The API does not permanently erase a workflow or remove its workspace.
 
 ## Verification
 
-`uv run --project cairn --group dev pytest cairn/tests/test_workflow_management.py`
+`uv run --project wayline --group dev pytest wayline/tests/test_workflow_management.py`
 
 The focused suite checks list visibility, retained read access, mutation guards, idempotence,
 paused and completed restoration, artifacts and usage retention, pending review leases,

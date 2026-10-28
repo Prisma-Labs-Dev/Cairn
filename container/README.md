@@ -1,34 +1,32 @@
-# Worker container
+# Optional worker container
 
-The worker image provides the CLI tools and Kali environment used by container-mode Cairn
-workers. The dispatcher creates one environment per standalone project. Workflow stages
-share a workflow environment so later stages can use files produced earlier.
+The supported first path is host-local Pi, described in
+[installation](../docs/installation.md). It reuses Pi's own API-key or subscription
+configuration. It does not need this worker image or Docker.
 
-Build a local image from this directory:
+Container execution is optional and uses the image built from this checkout:
 
-```bash
-cd container
-docker build . -t cairn-worker-container
+```sh
+docker build -t wayline-worker:local container
 ```
 
-Then set `container.image: cairn-worker-container` in the dispatcher configuration. The
-repository's default example uses the published upstream image instead:
+Set `container.image: wayline-worker:local`, as shown in `dispatch.example.yaml`.
+There is no upstream image fallback. The dispatcher and server application image
+is also built from this checkout by `docker compose build`. `docker compose up`
+starts only the server; the optional dispatcher profile is
+`docker compose --profile container-dispatcher up` after configuring `dispatch.yaml`.
+The dispatcher needs access to the Docker socket. Linux host networking in the
+container example is platform-dependent and must be selected for the actual host.
 
-```bash
-docker pull --platform=linux/amd64 ghcr.io/oritera/cairn-worker-container:latest
-```
+The generic worker includes pinned Pi, Codex and Claude CLIs plus Python, Node,
+git, curl, jq, ripgrep and fd. It runs as the image's unprivileged `node` user.
+It replaces the old Kali image's mutable security-tool repositories, broad
+capabilities, cloud CLIs and regional defaults. Add task-specific tools explicitly
+when required. Instructions come from this checkout's [AGENTS.md](AGENTS.md).
 
-Building here uses this checkout's [AGENTS.md](AGENTS.md). Pulling the published image does
-not rebuild it with this fork's translated instructions. The file describes the upstream CTF
-environment; generic research and production tasks should supply their own goal and context.
-Its external callback IP placeholder must be configured for the actual environment before use.
-
-Container execution requires Docker and provider configuration for the selected workers.
-The dispatcher controls process launch, claims, heartbeats, and result writeback. Agent
-processes do not call the Cairn API directly. The original container setup includes broad
-security tooling; choose network mode and capabilities for the authorized task.
-
-See the [main setup guide](../README.md#getting-started),
-[dispatcher specification](../docs/specs/dispatcher-design.md),
-[core change record](../docs/core-changes.md), [usage capture](../docs/usage.md), and
-[workflow workspace rules](../docs/workflows.md). Host-local execution does not use this image.
+Container workers require provider configuration in their dispatcher worker env.
+The example contains placeholders, not credentials. Host Pi subscription credentials
+are not automatically copied or mounted into containers. Authenticated container
+provider execution and a containerized Pi viewer need separate configuration; the
+host-local installation smoke does not establish either. The server image does not
+bundle Go, Node or the optional viewer binary.

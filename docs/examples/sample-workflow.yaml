@@ -1,0 +1,25 @@
+title: First Wayline workflow
+origin: >-
+  Work only in this workflow's managed workspace. No network access, external files,
+  account changes, or installation is needed. Use the supplied exact output contract.
+stages:
+  - id: write
+    title: Write the answer
+    goal: >-
+      Create outputs/answer.txt containing exactly the ASCII characters 42 followed
+      by one newline. Read it back and report the check. Do not substitute another output.
+    artifacts:
+      - path: outputs/answer.txt
+        label: Answer
+  - id: check
+    title: Check the saved answer
+    kind: review
+    depends_on: [write]
+    goal: >-
+      Read outputs/answer.txt and verify its exact bytes are 42 followed by one newline.
+      Do not alter that file. Write outputs/check.md stating the observed bytes,
+      SHA-256 digest, whether the contract passed, and the commands used to check it.
+      If the contract fails, report the failure instead of claiming success.
+    artifacts:
+      - path: outputs/check.md
+        label: Check report
